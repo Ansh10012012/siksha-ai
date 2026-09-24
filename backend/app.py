@@ -1,14 +1,14 @@
 # ============================================================
-# SIKSHA AI — BACKEND ENGINE
-# Gemini 3.8 • Chat • Premium • Files • TTS
-# Flask API • CORS • Secure Environment Variables
+# SIKSHA AI — PRODUCTION BACKEND ENGINE
+# Gemini Chat • Premium • Files • TTS
+# Flask API • CORS • Render Ready
 # ============================================================
 
 import os
 import io
-import base64
 import mimetypes
 import tempfile
+import traceback
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file
@@ -24,6 +24,7 @@ from google.genai import types
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
+
 load_dotenv(BASE_DIR / ".env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -38,7 +39,9 @@ if not GEMINI_API_KEY:
 # GEMINI CLIENT
 # ============================================================
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = genai.Client(
+    api_key=GEMINI_API_KEY
+)
 
 
 # ============================================================
@@ -67,7 +70,7 @@ TTS_VOICE = os.getenv(
 
 
 # ============================================================
-# FLASK APP
+# FLASK
 # ============================================================
 
 app = Flask(__name__)
@@ -85,7 +88,7 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
 
 # ============================================================
-# SIKSHA AI SYSTEM INSTRUCTIONS
+# SYSTEM INSTRUCTIONS
 # ============================================================
 
 NORMAL_SYSTEM = """
@@ -93,36 +96,46 @@ You are Siksha AI, a premium Indian education-focused AI assistant.
 
 Your primary purpose is to help students learn concepts clearly.
 
-IMPORTANT BEHAVIOUR:
+LANGUAGE:
 
-1. Understand the student's language.
-2. You can respond in:
-   - English
-   - Hindi
-   - Hinglish
-3. If the user writes Hinglish, naturally reply in Hinglish.
-4. Do not unnecessarily use difficult English.
-5. Explain concepts step-by-step.
-6. For school questions, keep the explanation age-appropriate.
-7. For mathematics and physics:
-   - show formulas clearly
-   - substitute values step-by-step
-   - show units
-   - give the final answer clearly
-8. For chemistry:
-   - explain reactions
-   - explain why something happens
-   - include equations where useful
-9. For biology:
-   - use simple definitions
-   - explain processes in logical order
-10. For ICSE questions, prefer ICSE-style explanations when the user asks.
-11. Never pretend to know information you do not know.
-12. If a question is ambiguous, make the most reasonable interpretation.
-13. Do not unnecessarily repeat the question.
-14. Do not start every response with phrases like "Sure!" or "Of course!"
-15. Be friendly, intelligent and concise.
-16. Encourage understanding instead of blindly giving answers.
+1. Understand English, Hindi and Hinglish.
+2. If the student writes in Hinglish, naturally reply in Hinglish.
+3. If the student writes in Hindi, reply in Hindi.
+4. If the student writes in English, reply in English.
+5. Do not unnecessarily use difficult English.
+
+TEACHING STYLE:
+
+1. Explain concepts clearly.
+2. Explain step-by-step when useful.
+3. Keep school explanations age-appropriate.
+4. For ICSE questions, prefer ICSE-style explanations.
+5. Explain WHY, not only WHAT.
+6. Do not unnecessarily repeat the question.
+7. Do not start every response with "Sure!" or "Of course!".
+8. Be friendly, intelligent and concise.
+9. Never pretend to know something you do not know.
+10. If a question is ambiguous, make the most reasonable interpretation.
+
+MATHEMATICS AND PHYSICS:
+
+- Show formulas clearly.
+- Substitute values step-by-step.
+- Show units.
+- Give the final answer clearly.
+- Use clean mathematical notation.
+
+CHEMISTRY:
+
+- Explain reactions.
+- Explain why reactions occur.
+- Include equations when useful.
+
+BIOLOGY:
+
+- Use simple definitions.
+- Explain processes in logical order.
+- Include important keywords.
 
 MATH FORMAT:
 
@@ -134,7 +147,7 @@ Example:
 d=\\sqrt{(x_2-x_1)^2+(y_2-y_1)^2}
 \\]
 
-For important final answers use:
+For important final answers, use:
 
 \\boxed{answer}
 
@@ -147,24 +160,28 @@ You are Siksha AI, not ChatGPT.
 PREMIUM_SYSTEM = """
 You are Siksha AI Premium, an advanced educational AI tutor.
 
-You provide deeper explanations while remaining student-friendly.
+You help students understand difficult concepts deeply while remaining student-friendly.
 
-You should:
+LANGUAGE:
 
-- understand English, Hindi and Hinglish
-- explain difficult concepts from first principles
-- connect school concepts with higher-level concepts when useful
-- provide step-by-step mathematical derivations
-- identify common mistakes
-- provide alternative solving methods when useful
-- explain WHY, not just WHAT
-- adapt explanations to the student's apparent level
-- use clean mathematical notation
-- structure long answers with headings
-- provide examples
-- provide exam-oriented tips when relevant
+- Understand English, Hindi and Hinglish.
+- Match the student's language naturally.
+- If the student uses Hinglish, respond naturally in Hinglish.
 
-For academic questions:
+TEACHING:
+
+- Explain from first principles.
+- Explain WHY, not just WHAT.
+- Connect school concepts with higher-level concepts when useful.
+- Provide step-by-step derivations.
+- Identify common mistakes.
+- Give alternative methods when useful.
+- Adapt to the student's apparent level.
+- Use clean mathematical notation.
+- Structure longer answers with headings.
+- Give examples where useful.
+
+For academic questions, prefer:
 
 1. Concept
 2. Explanation
@@ -181,16 +198,17 @@ Important equations may use:
 
 \\boxed{...}
 
-Respond naturally in English, Hindi or Hinglish depending on the user's language.
+You are Siksha AI Premium, not ChatGPT.
 """
 
 
 # ============================================================
-# HEALTH CHECK
+# HEALTH
 # ============================================================
 
 @app.get("/")
 def home():
+
     return jsonify({
         "name": "Siksha AI",
         "status": "online",
@@ -200,6 +218,7 @@ def home():
 
 @app.get("/api/health")
 def health():
+
     return jsonify({
         "status": "ok",
         "service": "Siksha AI",
@@ -215,7 +234,13 @@ def health():
 
 def clean_history(history):
     """
-    Convert frontend history into a safe Gemini conversation format.
+    Converts frontend history into Gemini-compatible
+    conversation contents.
+
+    Supports BOTH:
+        { role: "user", content: "..." }
+    and:
+        { role: "user", text: "..." }
     """
 
     if not isinstance(history, list):
@@ -228,8 +253,18 @@ def clean_history(history):
         if not isinstance(item, dict):
             continue
 
-        role = item.get("role", "")
-        text = item.get("text", "")
+        role = str(
+            item.get("role", "")
+        ).lower().strip()
+
+        # ----------------------------------------------------
+        # SUPPORT BOTH content AND text
+        # ----------------------------------------------------
+
+        text = item.get("content")
+
+        if not isinstance(text, str):
+            text = item.get("text", "")
 
         if not isinstance(text, str):
             continue
@@ -239,46 +274,85 @@ def clean_history(history):
         if not text:
             continue
 
-        if role in ("assistant", "ai"):
+        # ----------------------------------------------------
+        # NORMALIZE ROLE
+        # ----------------------------------------------------
+
+        if role in (
+            "assistant",
+            "ai",
+            "model"
+        ):
             gemini_role = "model"
+
         elif role == "user":
             gemini_role = "user"
+
         else:
             continue
 
-        cleaned.append(
-            types.Content(
-                role=gemini_role,
-                parts=[
-                    types.Part.from_text(text=text)
-                ]
-            )
-        )
+        cleaned.append({
+            "role": gemini_role,
+            "parts": [
+                {
+                    "text": text
+                }
+            ]
+        })
 
     return cleaned
 
 
-def get_text_from_response(response):
-    """
-    Safely extract text from Gemini response.
-    """
+def get_response_text(response):
 
     try:
+
         text = response.text
 
-        if text:
+        if isinstance(text, str) and text.strip():
             return text.strip()
+
     except Exception:
         pass
 
     return ""
 
 
-def error_response(message, status=500):
-    return jsonify({
+def error_response(message, status=500, debug=None):
+
+    payload = {
         "success": False,
         "error": message
-    }), status
+    }
+
+    # Safe diagnostic information.
+    # Does NOT expose the API key.
+    if debug:
+        payload["debug"] = str(debug)[:1200]
+
+    return jsonify(payload), status
+
+
+def safe_exception_text(exc):
+
+    """
+    Convert an exception into useful diagnostic text
+    without exposing environment secrets.
+    """
+
+    text = str(exc)
+
+    if not text:
+        text = type(exc).__name__
+
+    # Never accidentally expose API key.
+    if GEMINI_API_KEY:
+        text = text.replace(
+            GEMINI_API_KEY,
+            "[REDACTED]"
+        )
+
+    return text[:1200]
 
 
 # ============================================================
@@ -290,7 +364,13 @@ def chat():
 
     try:
 
-        data = request.get_json(silent=True)
+        # ----------------------------------------------------
+        # REQUEST
+        # ----------------------------------------------------
+
+        data = request.get_json(
+            silent=True
+        )
 
         if not data:
             return error_response(
@@ -298,12 +378,30 @@ def chat():
                 400
             )
 
-        message = data.get("message", "")
-        mode = str(data.get("mode", "normal")).lower()
+        message = data.get(
+            "message",
+            ""
+        )
 
-        history = data.get("history", [])
+        mode = str(
+            data.get(
+                "mode",
+                "normal"
+            )
+        ).lower().strip()
+
+        history = data.get(
+            "history",
+            []
+        )
+
+
+        # ----------------------------------------------------
+        # VALIDATE MESSAGE
+        # ----------------------------------------------------
 
         if not isinstance(message, str):
+
             return error_response(
                 "Message must be text.",
                 400
@@ -312,12 +410,14 @@ def chat():
         message = message.strip()
 
         if not message:
+
             return error_response(
                 "Message cannot be empty.",
                 400
             )
 
         if len(message) > 20000:
+
             return error_response(
                 "Message is too long.",
                 400
@@ -329,75 +429,141 @@ def chat():
         # ----------------------------------------------------
 
         if mode == "premium":
+
             model_name = PREMIUM_MODEL
+
             system_instruction = PREMIUM_SYSTEM
+
         else:
+
+            mode = "normal"
+
             model_name = CHAT_MODEL
+
             system_instruction = NORMAL_SYSTEM
 
 
         # ----------------------------------------------------
-        # HISTORY
+        # CLEAN HISTORY
         # ----------------------------------------------------
 
-        cleaned_history = clean_history(history)
-
-
-        # ----------------------------------------------------
-        # CURRENT USER MESSAGE
-        # ----------------------------------------------------
-
-        current_message = types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=message)
-            ]
+        cleaned_history = clean_history(
+            history
         )
 
 
-        contents = cleaned_history + [current_message]
+        # ----------------------------------------------------
+        # CURRENT MESSAGE
+        # ----------------------------------------------------
+
+        current_message = {
+            "role": "user",
+            "parts": [
+                {
+                    "text": message
+                }
+            ]
+        }
+
+
+        # ----------------------------------------------------
+        # BUILD CONTENTS
+        # ----------------------------------------------------
+
+        contents = (
+            cleaned_history
+            + [current_message]
+        )
 
 
         # ----------------------------------------------------
         # GEMINI REQUEST
         # ----------------------------------------------------
 
+        print("")
+        print("=" * 60)
+        print("SIKSHA AI CHAT REQUEST")
+        print("=" * 60)
+        print("Mode       :", mode)
+        print("Model      :", model_name)
+        print("History    :", len(cleaned_history))
+        print("Message    :", message[:200])
+        print("=" * 60)
+
+
         response = client.models.generate_content(
+
             model=model_name,
+
             contents=contents,
+
             config=types.GenerateContentConfig(
+
                 system_instruction=system_instruction,
-                temperature=0.7,
+
+                temperature=0.7
             )
         )
 
 
-        answer = get_text_from_response(response)
+        # ----------------------------------------------------
+        # EXTRACT ANSWER
+        # ----------------------------------------------------
+
+        answer = get_response_text(
+            response
+        )
 
 
         if not answer:
+
+            print(
+                "[Siksha AI] Empty Gemini response."
+            )
+
             return error_response(
                 "Siksha AI did not return a text response.",
                 502
             )
 
 
+        print(
+            "[Siksha AI] Response generated successfully."
+        )
+
+
         return jsonify({
+
             "success": True,
+
             "answer": answer,
+
             "mode": mode,
+
             "model": model_name
         })
 
 
     except Exception as exc:
 
-        print("\n[Siksha AI CHAT ERROR]")
-        print(str(exc))
+        print("")
+        print("=" * 60)
+        print("SIKSHA AI CHAT ERROR")
+        print("=" * 60)
+        print(
+            safe_exception_text(exc)
+        )
+        print("=" * 60)
+
+        traceback.print_exc()
 
         return error_response(
+
             "Siksha AI could not process your request right now.",
-            500
+
+            500,
+
+            debug=safe_exception_text(exc)
         )
 
 
@@ -412,7 +578,9 @@ def solve_file():
 
     try:
 
-        uploaded = request.files.get("file")
+        uploaded = request.files.get(
+            "file"
+        )
 
         question = request.form.get(
             "question",
@@ -422,7 +590,7 @@ def solve_file():
         mode = request.form.get(
             "mode",
             "normal"
-        ).lower()
+        ).lower().strip()
 
 
         # ----------------------------------------------------
@@ -430,12 +598,14 @@ def solve_file():
         # ----------------------------------------------------
 
         if uploaded is None:
+
             return error_response(
                 "No file was uploaded.",
                 400
             )
 
         if not uploaded.filename:
+
             return error_response(
                 "The uploaded file has no filename.",
                 400
@@ -444,17 +614,23 @@ def solve_file():
 
         filename = uploaded.filename
 
-        extension = Path(filename).suffix.lower()
+        extension = Path(
+            filename
+        ).suffix.lower()
+
 
         allowed_extensions = {
+
             ".pdf",
             ".txt",
             ".md",
             ".csv",
+
             ".jpg",
             ".jpeg",
             ".png",
             ".webp",
+
             ".py",
             ".js",
             ".html",
@@ -462,7 +638,9 @@ def solve_file():
             ".json"
         }
 
+
         if extension not in allowed_extensions:
+
             return error_response(
                 "This file type is not supported.",
                 400
@@ -470,7 +648,7 @@ def solve_file():
 
 
         # ----------------------------------------------------
-        # SAVE TEMPORARILY
+        # TEMP FILE
         # ----------------------------------------------------
 
         with tempfile.NamedTemporaryFile(
@@ -478,24 +656,31 @@ def solve_file():
             suffix=extension
         ) as temp_file:
 
-            uploaded.save(temp_file)
+            uploaded.save(
+                temp_file
+            )
 
             temp_path = temp_file.name
 
 
         # ----------------------------------------------------
-        # MIME TYPE
+        # MIME
         # ----------------------------------------------------
 
         mime_type = (
+
             uploaded.mimetype
-            or mimetypes.guess_type(filename)[0]
+
+            or mimetypes.guess_type(
+                filename
+            )[0]
+
             or "application/octet-stream"
         )
 
 
         # ----------------------------------------------------
-        # UPLOAD TO GEMINI FILES API
+        # UPLOAD TO GEMINI
         # ----------------------------------------------------
 
         gemini_file = client.files.upload(
@@ -515,14 +700,17 @@ You are Siksha AI Premium.
 Analyze the uploaded file carefully.
 
 Student request:
+
 {question}
 
 File name:
+
 {filename}
 
 Give a detailed but student-friendly explanation.
 
 If the file contains:
+
 - questions → solve them
 - notes → explain and summarize them
 - mathematics → show complete calculations
@@ -530,7 +718,7 @@ If the file contains:
 - chemistry → explain equations and concepts
 - biology → explain processes and definitions
 - code → explain and identify errors
-- an image → read and analyze its visible content
+- an image → read and analyze visible content
 
 Use Hinglish if the student asked in Hinglish.
 """
@@ -543,15 +731,19 @@ You are Siksha AI.
 Analyze the uploaded file.
 
 Student request:
+
 {question}
 
 File name:
+
 {filename}
 
 Explain the answer clearly and step-by-step.
 
 If there are questions in the file, solve them.
+
 If there are notes, explain them.
+
 If there are formulas, preserve them correctly.
 
 Use English, Hindi or Hinglish according to the student's language.
@@ -559,30 +751,42 @@ Use English, Hindi or Hinglish according to the student's language.
 
 
         # ----------------------------------------------------
-        # GENERATE RESPONSE
+        # GENERATE
         # ----------------------------------------------------
 
         response = client.models.generate_content(
-            model=CHAT_MODEL if mode != "premium" else PREMIUM_MODEL,
+
+            model=(
+                PREMIUM_MODEL
+                if mode == "premium"
+                else CHAT_MODEL
+            ),
+
             contents=[
                 gemini_file,
                 file_instruction
             ],
+
             config=types.GenerateContentConfig(
+
                 system_instruction=(
                     PREMIUM_SYSTEM
                     if mode == "premium"
                     else NORMAL_SYSTEM
                 ),
+
                 temperature=0.5
             )
         )
 
 
-        answer = get_text_from_response(response)
+        answer = get_response_text(
+            response
+        )
 
 
         if not answer:
+
             return error_response(
                 "Siksha AI could not understand the uploaded file.",
                 502
@@ -590,21 +794,37 @@ Use English, Hindi or Hinglish according to the student's language.
 
 
         return jsonify({
+
             "success": True,
+
             "answer": answer,
+
             "filename": filename,
+
             "mode": mode
         })
 
 
     except Exception as exc:
 
-        print("\n[Siksha AI FILE ERROR]")
-        print(str(exc))
+        print("")
+        print("=" * 60)
+        print("SIKSHA AI FILE ERROR")
+        print("=" * 60)
+        print(
+            safe_exception_text(exc)
+        )
+        print("=" * 60)
+
+        traceback.print_exc()
 
         return error_response(
+
             "Siksha AI could not process this file.",
-            500
+
+            500,
+
+            debug=safe_exception_text(exc)
         )
 
 
@@ -627,32 +847,45 @@ def text_to_speech():
 
     try:
 
-        data = request.get_json(silent=True)
+        data = request.get_json(
+            silent=True
+        )
 
         if not data:
+
             return error_response(
                 "Request body is missing.",
                 400
             )
 
-        text = data.get("text", "")
+
+        text = data.get(
+            "text",
+            ""
+        )
+
 
         if not isinstance(text, str):
+
             return error_response(
                 "Text must be a string.",
                 400
             )
 
+
         text = text.strip()
 
+
         if not text:
+
             return error_response(
                 "No text supplied for speech.",
                 400
             )
 
-        # Prevent accidentally huge TTS requests.
+
         if len(text) > 12000:
+
             text = text[:12000]
 
 
@@ -664,6 +897,7 @@ def text_to_speech():
 Read the following educational response aloud.
 
 Voice style:
+
 - warm
 - intelligent
 - friendly
@@ -688,14 +922,25 @@ TEXT:
         # ----------------------------------------------------
 
         response = client.models.generate_content(
+
             model=TTS_MODEL,
+
             contents=tts_prompt,
+
             config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
+
+                response_modalities=[
+                    "AUDIO"
+                ],
+
                 speech_config=types.SpeechConfig(
+
                     voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=TTS_VOICE
+
+                        prebuilt_voice_config=(
+                            types.PrebuiltVoiceConfig(
+                                voice_name=TTS_VOICE
+                            )
                         )
                     )
                 )
@@ -704,15 +949,20 @@ TEXT:
 
 
         # ----------------------------------------------------
-        # FIND AUDIO DATA
+        # AUDIO
         # ----------------------------------------------------
 
         audio_bytes = None
+
         mime_type = "audio/wav"
+
 
         try:
 
-            candidates = response.candidates or []
+            candidates = (
+                response.candidates
+                or []
+            )
 
             for candidate in candidates:
 
@@ -721,7 +971,10 @@ TEXT:
                 if not content:
                     continue
 
-                parts = content.parts or []
+                parts = (
+                    content.parts
+                    or []
+                )
 
                 for part in parts:
 
@@ -733,14 +986,19 @@ TEXT:
 
                     if inline_data:
 
-                        audio_bytes = inline_data.data
+                        audio_bytes = (
+                            inline_data.data
+                        )
 
                         if getattr(
                             inline_data,
                             "mime_type",
                             None
                         ):
-                            mime_type = inline_data.mime_type
+
+                            mime_type = (
+                                inline_data.mime_type
+                            )
 
                         break
 
@@ -748,10 +1006,12 @@ TEXT:
                     break
 
         except Exception:
+
             audio_bytes = None
 
 
         if not audio_bytes:
+
             return error_response(
                 "Gemini TTS did not return audio.",
                 502
@@ -762,51 +1022,88 @@ TEXT:
         # RETURN AUDIO
         # ----------------------------------------------------
 
-        audio_stream = io.BytesIO(audio_bytes)
+        audio_stream = io.BytesIO(
+            audio_bytes
+        )
 
         audio_stream.seek(0)
 
+
         return send_file(
+
             audio_stream,
+
             mimetype=mime_type,
+
             as_attachment=False,
-            download_name="siksha-ai-voice.wav"
+
+            download_name=(
+                "siksha-ai-voice.wav"
+            )
         )
 
 
     except Exception as exc:
 
-        print("\n[Siksha AI TTS ERROR]")
-        print(str(exc))
+        print("")
+        print("=" * 60)
+        print("SIKSHA AI TTS ERROR")
+        print("=" * 60)
+        print(
+            safe_exception_text(exc)
+        )
+        print("=" * 60)
+
+        traceback.print_exc()
 
         return error_response(
+
             "Siksha AI voice generation failed.",
-            500
+
+            500,
+
+            debug=safe_exception_text(exc)
         )
 
 
 # ============================================================
-# RUN SERVER
+# SERVER
 # ============================================================
 
 if __name__ == "__main__":
 
     print("")
     print("=" * 60)
-    print("        SIKSHA AI BACKEND")
+    print("              SIKSHA AI BACKEND")
     print("=" * 60)
-    print(f"Chat Model    : {CHAT_MODEL}")
-    print(f"Premium Model : {PREMIUM_MODEL}")
-    print(f"TTS Model     : {TTS_MODEL}")
-    print(f"TTS Voice     : {TTS_VOICE}")
+    print(
+        f"Chat Model    : {CHAT_MODEL}"
+    )
+    print(
+        f"Premium Model : {PREMIUM_MODEL}"
+    )
+    print(
+        f"TTS Model     : {TTS_MODEL}"
+    )
+    print(
+        f"TTS Voice     : {TTS_VOICE}"
+    )
     print("=" * 60)
-    print("Server        : http://127.0.0.1:5000")
-    print("Health        : http://127.0.0.1:5000/api/health")
+    print(
+        "Server        : http://127.0.0.1:5000"
+    )
+    print(
+        "Health        : http://127.0.0.1:5000/api/health"
+    )
     print("=" * 60)
     print("")
 
+
     app.run(
+
         host="127.0.0.1",
+
         port=5000,
+
         debug=True
     )
