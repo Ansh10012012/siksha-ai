@@ -2,12 +2,25 @@
 # SIKSHA AI — PRODUCTION BACKEND ENGINE
 # Gemini Chat • Premium • Files • TTS
 # Flask API • CORS • Render Ready
+#
+# FEATURES:
+# - Normal Chat
+# - Premium Chat
+# - Hinglish / Hindi / English
+# - Conversation History
+# - Automatic 503 Retry
+# - Gemini Model Fallback
+# - File Solving
+# - Gemini Native TTS
+# - Render PORT support
+# - Safe error handling
 # ============================================================
 
 import os
 import io
 import mimetypes
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -48,16 +61,26 @@ client = genai.Client(
 # MODELS
 # ============================================================
 
+# Primary model
 CHAT_MODEL = os.getenv(
     "GEMINI_CHAT_MODEL",
     "gemini-3.8-flash"
 )
 
+# Premium primary model
 PREMIUM_MODEL = os.getenv(
     "GEMINI_PREMIUM_MODEL",
     "gemini-3.8-flash"
 )
 
+# Fallback models
+FALLBACK_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash"
+]
+
+# Native Gemini TTS
 TTS_MODEL = os.getenv(
     "GEMINI_TTS_MODEL",
     "gemini-3.8-flash-tts"
@@ -67,6 +90,18 @@ TTS_VOICE = os.getenv(
     "GEMINI_TTS_VOICE",
     "Kore"
 )
+
+
+# ============================================================
+# RETRY SETTINGS
+# ============================================================
+
+# Number of retries for temporary server errors
+MAX_RETRIES = 2
+
+# Small exponential backoff:
+# 1.5 sec -> 3 sec
+RETRY_BASE_SECONDS = 1.5
 
 
 # ============================================================
@@ -84,6 +119,7 @@ CORS(
     }
 )
 
+# Maximum upload size: 50 MB
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
 
@@ -203,7 +239,7 @@ You are Siksha AI Premium, not ChatGPT.
 
 
 # ============================================================
-# HEALTH
+# HEALTH / HOME
 # ============================================================
 
 @app.get("/")
@@ -224,7 +260,9 @@ def health():
         "service": "Siksha AI",
         "chat_model": CHAT_MODEL,
         "premium_model": PREMIUM_MODEL,
-        "tts_model": TTS_MODEL
+        "fallback_models": FALLBACK_MODELS,
+        "tts_model": TTS_MODEL,
+        "tts_voice": TTS_VOICE
     })
 
 
@@ -232,15 +270,114 @@ def health():
 # HELPERS
 # ============================================================
 
+def safe_exception_text(exc):
+    """
+    Convert exception into safe diagnostic text.
+    Never expose the Gemini API key.
+    """
+
+    text = str(exc)
+
+    if not text:
+        text = type(exc).__name__
+
+    if GEMINI_API_KEY:
+        text = text.replace(
+            GEMINI_API_KEY,
+            "[REDACTED]"
+        )
+
+    return text[:1500]
+
+
+def error_response(message, status=500, debug=None):
+    """
+    Standard API error response.
+    """
+
+    payload = {
+        "success": False,
+        "error": message
+    }
+
+    if debug:
+        payload["debug"] = str(debug)[:1500]
+
+    return jsonify(payload), status
+
+
+def is_temporary_gemini_error(exc):
+    """
+    Detect temporary Gemini service errors.
+
+    We mainly care about:
+    - 429
+    - 500
+    - 502
+    - 503
+    - 504
+    """
+
+    text = safe_exception_text(exc).upper()
+
+    temporary_codes = (
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "UNAVAILABLE",
+        "RESOURCE_EXHAUSTED",
+        "INTERNAL",
+        "DEADLINE"
+    )
+
+    return any(
+        code in text
+        for code in temporary_codes
+    )
+
+
+def model_list(primary_model):
+    """
+    Build ordered model list.
+
+    Primary model first.
+    Then fallback models.
+    Removes duplicates.
+    """
+
+    models = []
+
+    for model in [
+        primary_model,
+        *FALLBACK_MODELS
+    ]:
+
+        if model and model not in models:
+            models.append(model)
+
+    return models
+
+
 def clean_history(history):
     """
     Converts frontend history into Gemini-compatible
     conversation contents.
 
-    Supports BOTH:
-        { role: "user", content: "..." }
+    Supports:
+
+        {
+            "role": "user",
+            "content": "..."
+        }
+
     and:
-        { role: "user", text: "..." }
+
+        {
+            "role": "user",
+            "text": "..."
+        }
     """
 
     if not isinstance(history, list):
@@ -257,10 +394,6 @@ def clean_history(history):
             item.get("role", "")
         ).lower().strip()
 
-        # ----------------------------------------------------
-        # SUPPORT BOTH content AND text
-        # ----------------------------------------------------
-
         text = item.get("content")
 
         if not isinstance(text, str):
@@ -274,21 +407,20 @@ def clean_history(history):
         if not text:
             continue
 
-        # ----------------------------------------------------
-        # NORMALIZE ROLE
-        # ----------------------------------------------------
-
         if role in (
             "assistant",
             "ai",
             "model"
         ):
+
             gemini_role = "model"
 
         elif role == "user":
+
             gemini_role = "user"
 
         else:
+
             continue
 
         cleaned.append({
@@ -304,6 +436,9 @@ def clean_history(history):
 
 
 def get_response_text(response):
+    """
+    Safely extract text from Gemini response.
+    """
 
     try:
 
@@ -318,41 +453,209 @@ def get_response_text(response):
     return ""
 
 
-def error_response(message, status=500, debug=None):
+# ============================================================
+# GEMINI CHAT WITH RETRY + FALLBACK
+# ============================================================
 
-    payload = {
-        "success": False,
-        "error": message
-    }
-
-    # Safe diagnostic information.
-    # Does NOT expose the API key.
-    if debug:
-        payload["debug"] = str(debug)[:1200]
-
-    return jsonify(payload), status
-
-
-def safe_exception_text(exc):
-
+def generate_chat_response(
+    primary_model,
+    contents,
+    system_instruction
+):
     """
-    Convert an exception into useful diagnostic text
-    without exposing environment secrets.
+    Generate a Gemini response.
+
+    Strategy:
+
+    Primary model
+        ↓
+    Retry temporary error
+        ↓
+    Fallback model
+        ↓
+    Retry fallback
+        ↓
+    Next fallback
+
+    Returns:
+
+        response, model_used
+
+    Raises the last exception if every model fails.
     """
 
-    text = str(exc)
+    models = model_list(primary_model)
 
-    if not text:
-        text = type(exc).__name__
+    last_exception = None
 
-    # Never accidentally expose API key.
-    if GEMINI_API_KEY:
-        text = text.replace(
-            GEMINI_API_KEY,
-            "[REDACTED]"
-        )
+    for model_index, model_name in enumerate(models):
 
-    return text[:1200]
+        for attempt in range(MAX_RETRIES + 1):
+
+            try:
+
+                print("")
+                print("-" * 60)
+                print("Gemini attempt")
+                print("Model  :", model_name)
+                print("Attempt:", attempt + 1)
+                print("-" * 60)
+
+                # Gemini 3.8 migration:
+                # deliberately no temperature/top_p/top_k.
+                response = client.models.generate_content(
+
+                    model=model_name,
+
+                    contents=contents,
+
+                    config=types.GenerateContentConfig(
+
+                        system_instruction=system_instruction
+                    )
+                )
+
+                return response, model_name
+
+            except Exception as exc:
+
+                last_exception = exc
+
+                print("")
+                print("[Gemini temporary/permanent error]")
+                print("Model  :", model_name)
+                print("Attempt:", attempt + 1)
+                print("Error  :", safe_exception_text(exc))
+
+                # Only retry/fallback temporary errors.
+                if not is_temporary_gemini_error(exc):
+
+                    raise
+
+                # Retry same model if attempts remain.
+                if attempt < MAX_RETRIES:
+
+                    delay = (
+                        RETRY_BASE_SECONDS
+                        * (2 ** attempt)
+                    )
+
+                    print(
+                        f"Retrying in {delay:.1f}s..."
+                    )
+
+                    time.sleep(delay)
+
+                    continue
+
+                # Current model exhausted.
+                print(
+                    f"Model {model_name} exhausted."
+                )
+
+                if model_index < len(models) - 1:
+
+                    print(
+                        "Switching to fallback model..."
+                    )
+
+                break
+
+    if last_exception:
+        raise last_exception
+
+    raise RuntimeError(
+        "No Gemini model was available."
+    )
+
+
+# ============================================================
+# FILE GEMINI GENERATION WITH FALLBACK
+# ============================================================
+
+def generate_file_response(
+    primary_model,
+    contents,
+    system_instruction
+):
+    """
+    Same retry/fallback strategy for uploaded files.
+    """
+
+    models = model_list(primary_model)
+
+    last_exception = None
+
+    for model_index, model_name in enumerate(models):
+
+        for attempt in range(MAX_RETRIES + 1):
+
+            try:
+
+                print("")
+                print("-" * 60)
+                print("Gemini FILE attempt")
+                print("Model  :", model_name)
+                print("Attempt:", attempt + 1)
+                print("-" * 60)
+
+                response = client.models.generate_content(
+
+                    model=model_name,
+
+                    contents=contents,
+
+                    config=types.GenerateContentConfig(
+
+                        system_instruction=system_instruction
+                    )
+                )
+
+                return response, model_name
+
+            except Exception as exc:
+
+                last_exception = exc
+
+                print("")
+                print("[Gemini FILE error]")
+                print("Model  :", model_name)
+                print("Attempt:", attempt + 1)
+                print("Error  :", safe_exception_text(exc))
+
+                if not is_temporary_gemini_error(exc):
+
+                    raise
+
+                if attempt < MAX_RETRIES:
+
+                    delay = (
+                        RETRY_BASE_SECONDS
+                        * (2 ** attempt)
+                    )
+
+                    print(
+                        f"Retrying file request in {delay:.1f}s..."
+                    )
+
+                    time.sleep(delay)
+
+                    continue
+
+                if model_index < len(models) - 1:
+
+                    print(
+                        "Switching file request to fallback model..."
+                    )
+
+                break
+
+    if last_exception:
+        raise last_exception
+
+    raise RuntimeError(
+        "No Gemini model was available for file processing."
+    )
 
 
 # ============================================================
@@ -373,6 +676,7 @@ def chat():
         )
 
         if not data:
+
             return error_response(
                 "Request body is missing.",
                 400
@@ -430,7 +734,7 @@ def chat():
 
         if mode == "premium":
 
-            model_name = PREMIUM_MODEL
+            primary_model = PREMIUM_MODEL
 
             system_instruction = PREMIUM_SYSTEM
 
@@ -438,7 +742,7 @@ def chat():
 
             mode = "normal"
 
-            model_name = CHAT_MODEL
+            primary_model = CHAT_MODEL
 
             system_instruction = NORMAL_SYSTEM
 
@@ -477,7 +781,7 @@ def chat():
 
 
         # ----------------------------------------------------
-        # GEMINI REQUEST
+        # LOG
         # ----------------------------------------------------
 
         print("")
@@ -485,29 +789,29 @@ def chat():
         print("SIKSHA AI CHAT REQUEST")
         print("=" * 60)
         print("Mode       :", mode)
-        print("Model      :", model_name)
+        print("Primary    :", primary_model)
+        print("Fallbacks  :", ", ".join(FALLBACK_MODELS))
         print("History    :", len(cleaned_history))
         print("Message    :", message[:200])
         print("=" * 60)
 
 
-        response = client.models.generate_content(
+        # ----------------------------------------------------
+        # GEMINI
+        # ----------------------------------------------------
 
-            model=model_name,
+        response, model_used = generate_chat_response(
+
+            primary_model=primary_model,
 
             contents=contents,
 
-            config=types.GenerateContentConfig(
-
-                system_instruction=system_instruction,
-
-                temperature=0.7
-            )
+            system_instruction=system_instruction
         )
 
 
         # ----------------------------------------------------
-        # EXTRACT ANSWER
+        # ANSWER
         # ----------------------------------------------------
 
         answer = get_response_text(
@@ -531,6 +835,15 @@ def chat():
             "[Siksha AI] Response generated successfully."
         )
 
+        print(
+            "[Siksha AI] Model used:",
+            model_used
+        )
+
+
+        # ----------------------------------------------------
+        # RESPONSE
+        # ----------------------------------------------------
 
         return jsonify({
 
@@ -540,22 +853,39 @@ def chat():
 
             "mode": mode,
 
-            "model": model_name
+            "model": model_used
         })
 
 
     except Exception as exc:
 
+        error_text = safe_exception_text(
+            exc
+        )
+
         print("")
         print("=" * 60)
         print("SIKSHA AI CHAT ERROR")
         print("=" * 60)
-        print(
-            safe_exception_text(exc)
-        )
+        print(error_text)
         print("=" * 60)
 
         traceback.print_exc()
+
+        # Temporary Gemini outage
+        if is_temporary_gemini_error(exc):
+
+            return error_response(
+
+                "Gemini is temporarily unavailable. "
+                "Siksha AI tried the available fallback models. "
+                "Please try again shortly.",
+
+                503,
+
+                debug=error_text
+            )
+
 
         return error_response(
 
@@ -563,7 +893,7 @@ def chat():
 
             500,
 
-            debug=safe_exception_text(exc)
+            debug=error_text
         )
 
 
@@ -723,6 +1053,8 @@ If the file contains:
 Use Hinglish if the student asked in Hinglish.
 """
 
+            file_system = PREMIUM_SYSTEM
+
         else:
 
             file_instruction = f"""
@@ -749,36 +1081,40 @@ If there are formulas, preserve them correctly.
 Use English, Hindi or Hinglish according to the student's language.
 """
 
+            file_system = NORMAL_SYSTEM
+
+
+        # ----------------------------------------------------
+        # PRIMARY MODEL
+        # ----------------------------------------------------
+
+        primary_model = (
+            PREMIUM_MODEL
+            if mode == "premium"
+            else CHAT_MODEL
+        )
+
 
         # ----------------------------------------------------
         # GENERATE
         # ----------------------------------------------------
 
-        response = client.models.generate_content(
+        response, model_used = generate_file_response(
 
-            model=(
-                PREMIUM_MODEL
-                if mode == "premium"
-                else CHAT_MODEL
-            ),
+            primary_model=primary_model,
 
             contents=[
                 gemini_file,
                 file_instruction
             ],
 
-            config=types.GenerateContentConfig(
-
-                system_instruction=(
-                    PREMIUM_SYSTEM
-                    if mode == "premium"
-                    else NORMAL_SYSTEM
-                ),
-
-                temperature=0.5
-            )
+            system_instruction=file_system
         )
 
+
+        # ----------------------------------------------------
+        # ANSWER
+        # ----------------------------------------------------
 
         answer = get_response_text(
             response
@@ -801,22 +1137,40 @@ Use English, Hindi or Hinglish according to the student's language.
 
             "filename": filename,
 
-            "mode": mode
+            "mode": mode,
+
+            "model": model_used
         })
 
 
     except Exception as exc:
 
+        error_text = safe_exception_text(
+            exc
+        )
+
         print("")
         print("=" * 60)
         print("SIKSHA AI FILE ERROR")
         print("=" * 60)
-        print(
-            safe_exception_text(exc)
-        )
+        print(error_text)
         print("=" * 60)
 
         traceback.print_exc()
+
+
+        if is_temporary_gemini_error(exc):
+
+            return error_response(
+
+                "Gemini is temporarily unavailable while processing the file. "
+                "Please try again shortly.",
+
+                503,
+
+                debug=error_text
+            )
+
 
         return error_response(
 
@@ -824,7 +1178,7 @@ Use English, Hindi or Hinglish according to the student's language.
 
             500,
 
-            debug=safe_exception_text(exc)
+            debug=error_text
         )
 
 
@@ -833,8 +1187,13 @@ Use English, Hindi or Hinglish according to the student's language.
         if temp_path:
 
             try:
-                os.remove(temp_path)
+
+                os.remove(
+                    temp_path
+                )
+
             except Exception:
+
                 pass
 
 
@@ -949,7 +1308,7 @@ TEXT:
 
 
         # ----------------------------------------------------
-        # AUDIO
+        # AUDIO EXTRACTION
         # ----------------------------------------------------
 
         audio_bytes = None
@@ -1010,10 +1369,16 @@ TEXT:
             audio_bytes = None
 
 
+        # ----------------------------------------------------
+        # VALIDATE AUDIO
+        # ----------------------------------------------------
+
         if not audio_bytes:
 
             return error_response(
+
                 "Gemini TTS did not return audio.",
+
                 502
             )
 
@@ -1045,16 +1410,32 @@ TEXT:
 
     except Exception as exc:
 
+        error_text = safe_exception_text(
+            exc
+        )
+
         print("")
         print("=" * 60)
         print("SIKSHA AI TTS ERROR")
         print("=" * 60)
-        print(
-            safe_exception_text(exc)
-        )
+        print(error_text)
         print("=" * 60)
 
         traceback.print_exc()
+
+
+        if is_temporary_gemini_error(exc):
+
+            return error_response(
+
+                "Gemini voice service is temporarily unavailable. "
+                "Please try again shortly.",
+
+                503,
+
+                debug=error_text
+            )
+
 
         return error_response(
 
@@ -1062,7 +1443,7 @@ TEXT:
 
             500,
 
-            debug=safe_exception_text(exc)
+            debug=error_text
         )
 
 
@@ -1072,38 +1453,56 @@ TEXT:
 
 if __name__ == "__main__":
 
+    # Render provides PORT automatically.
+    # Local development falls back to 5000.
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
+
     print("")
     print("=" * 60)
     print("              SIKSHA AI BACKEND")
     print("=" * 60)
+
     print(
         f"Chat Model    : {CHAT_MODEL}"
     )
+
     print(
         f"Premium Model : {PREMIUM_MODEL}"
     )
+
+    print(
+        "Fallbacks     : "
+        + ", ".join(FALLBACK_MODELS)
+    )
+
     print(
         f"TTS Model     : {TTS_MODEL}"
     )
+
     print(
         f"TTS Voice     : {TTS_VOICE}"
     )
-    print("=" * 60)
+
     print(
-        "Server        : http://127.0.0.1:5000"
+        f"Port          : {port}"
     )
-    print(
-        "Health        : http://127.0.0.1:5000/api/health"
-    )
+
     print("=" * 60)
     print("")
 
 
     app.run(
 
-        host="127.0.0.1",
+        host="0.0.0.0",
 
-        port=5000,
+        port=port,
 
-        debug=True
+        debug=False
     )
