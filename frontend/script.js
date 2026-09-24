@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // CONFIG
     // ========================================================
 
-    const API_BASE = "http://127.0.0.1:5000";
+    const API_BASE = "https://siksha-ai-backend.onrender.com";
 
     const API_URL = `${API_BASE}/api/chat`;
     const FILE_API_URL = `${API_BASE}/api/solve-file`;
