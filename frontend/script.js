@@ -3,16 +3,9 @@
 // CHAT + MEMORY + PREMIUM + HINDI + ENGLISH + HINGLISH
 // VOICE INPUT + GEMINI TTS + FILE UPLOAD
 // RECENT CHATS + SEARCH + DELETE
-// MATH RENDERING + TYPING ANIMATION
+// MATH RENDERING + MARKDOWN + TYPING ANIMATION
 // RENDER DEPLOYMENT READY
-//
-// FIXES:
-// - Removed AI logo/avatar from every response
-// - Fixed insertBefore / detached typing indicator crash
-// - Fixed current-message history duplication
-// - Stronger backend connection handling
-// - Better Render cold-start handling
-// - Safer response parsing
+// CONNECTION + DOM STABILITY FIXED
 // ============================================================
 
 "use strict";
@@ -35,6 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const TTS_URL =
         `${API_BASE}/api/tts`;
 
+    const HEALTH_URL =
+        `${API_BASE}/api/health`;
+
     const CHATS_KEY =
         "siksha_ai_chats_v2";
 
@@ -44,15 +40,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const MAX_CHATS = 500;
     const MAX_MESSAGES = 80;
 
-    // Render free backend can take some time to wake up.
+    // Render free instances can sleep.
+    // Give backend enough time to wake up.
     const REQUEST_TIMEOUT = 60000;
 
     // ========================================================
-    // DOM
+    // DOM HELPER
     // ========================================================
 
     const $ = (id) =>
         document.getElementById(id);
+
+    // ========================================================
+    // DOM ELEMENTS
+    // ========================================================
 
     const messages =
         $("messages");
@@ -163,7 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $("mobileSidebarOverlay");
 
     // ========================================================
-    // BASIC SAFETY
+    // BASIC DOM SAFETY
     // ========================================================
 
     if (!messages) {
@@ -212,7 +213,69 @@ document.addEventListener("DOMContentLoaded", () => {
         null;
 
     // ========================================================
-    // CHAT ID
+    // REQUEST HELPER
+    // ========================================================
+
+    async function fetchWithTimeout(
+        url,
+        options = {},
+        timeout = REQUEST_TIMEOUT
+    ) {
+
+        const controller =
+            new AbortController();
+
+        const timer =
+            setTimeout(
+                () => controller.abort(),
+                timeout
+            );
+
+        try {
+
+            return await fetch(
+                url,
+                {
+                    ...options,
+                    signal:
+                        controller.signal
+                }
+            );
+
+        } catch (error) {
+
+            if (
+                error &&
+                error.name ===
+                "AbortError"
+            ) {
+
+                throw new Error(
+                    "Siksha AI is taking too long to respond. The server may be waking up. Please try again."
+                );
+            }
+
+            if (
+                !navigator.onLine
+            ) {
+
+                throw new Error(
+                    "No internet connection. Please check your internet and try again."
+                );
+            }
+
+            throw new Error(
+                "Could not reach the Siksha AI server. Please try again in a few seconds."
+            );
+
+        } finally {
+
+            clearTimeout(timer);
+        }
+    }
+
+    // ========================================================
+    // CHAT DATA
     // ========================================================
 
     function generateId() {
@@ -224,10 +287,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 .slice(2, 10)
         );
     }
-
-    // ========================================================
-    // CREATE CHAT
-    // ========================================================
 
     function createChat() {
 
@@ -266,10 +325,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return chat;
     }
 
-    // ========================================================
-    // GET CURRENT CHAT
-    // ========================================================
-
     function getCurrentChat() {
 
         let chat =
@@ -291,15 +346,12 @@ document.addEventListener("DOMContentLoaded", () => {
             )
         ) {
 
-            chat.messages = [];
+            chat.messages =
+                [];
         }
 
         return chat;
     }
-
-    // ========================================================
-    // TRIM CHATS
-    // ========================================================
 
     function trimChats() {
 
@@ -315,10 +367,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
         }
     }
-
-    // ========================================================
-    // SAVE CHATS
-    // ========================================================
 
     function saveChats() {
 
@@ -338,10 +386,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ========================================================
-    // LOAD CHATS
-    // ========================================================
-
     function loadChats() {
 
         try {
@@ -359,7 +403,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 JSON.parse(saved);
 
             if (
-                !Array.isArray(parsed)
+                !Array.isArray(
+                    parsed
+                )
             ) {
 
                 return [];
@@ -420,8 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ) {
 
             if (
-                chats.length >
-                0
+                chats.length > 0
             ) {
 
                 currentChatId =
@@ -449,8 +494,8 @@ document.addEventListener("DOMContentLoaded", () => {
         setMode("normal");
 
         console.log(
-            "%cSiksha AI frontend loaded successfully.",
-            "color:#a855f7;font-weight:bold;font-size:14px"
+            "%cSiksha AI frontend loaded.",
+            "color:#a855f7;font-weight:bold;"
         );
 
         console.log(
@@ -469,21 +514,19 @@ document.addEventListener("DOMContentLoaded", () => {
             getCurrentChat();
 
         /*
-         * Remove only generated message elements.
-         *
          * IMPORTANT:
-         * Do NOT use messages.innerHTML = ""
+         * Do NOT use messages.innerHTML = "".
          *
-         * That used to detach typingIndicator
-         * and cause insertBefore() crashes.
+         * That detaches welcomeScreen and
+         * typingIndicator from the DOM.
          */
 
-        const existingMessages =
+        const oldMessages =
             messages.querySelectorAll(
                 ".message"
             );
 
-        existingMessages.forEach(
+        oldMessages.forEach(
             element =>
                 element.remove()
         );
@@ -537,10 +580,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     normalizeRole(
                         message.role
                     ),
+
                     String(
                         message.content ||
                         ""
                     ),
+
                     false
                 );
             }
@@ -557,16 +602,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function normalizeRole(role) {
 
+        const value =
+            String(
+                role || ""
+            ).toLowerCase();
+
         if (
-            role === "assistant" ||
-            role === "model" ||
-            role === "ai"
+            value === "user"
+        ) {
+
+            return "user";
+        }
+
+        if (
+            value === "ai" ||
+            value === "assistant" ||
+            value === "model"
         ) {
 
             return "ai";
         }
 
-        return "user";
+        return "ai";
     }
 
     // ========================================================
@@ -579,6 +636,11 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        /*
+         * insertBefore() requires the reference node
+         * to be an actual child of messages.
+         */
+
         if (
             typingIndicator.parentNode !==
             messages
@@ -588,11 +650,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 typingIndicator
             );
         }
-    }
-
-    function addTypingIndicator() {
-
-        ensureTypingIndicator();
     }
 
     function showTyping() {
@@ -611,7 +668,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function hideTyping() {
 
-        if (typingIndicator) {
+        if (
+            typingIndicator
+        ) {
 
             typingIndicator.classList.remove(
                 "visible"
@@ -631,10 +690,13 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        recentChats.innerHTML = "";
+        recentChats.innerHTML =
+            "";
 
         const query =
-            String(filter || "")
+            String(
+                filter || ""
+            )
                 .trim()
                 .toLowerCase();
 
@@ -656,13 +718,16 @@ document.addEventListener("DOMContentLoaded", () => {
                         String(
                             getLastUserMessage(
                                 chat
-                            ) ||
-                            ""
+                            ) || ""
                         ).toLowerCase();
 
                     return (
-                        title.includes(query) ||
-                        preview.includes(query)
+                        title.includes(
+                            query
+                        ) ||
+                        preview.includes(
+                            query
+                        )
                     );
                 }
             );
@@ -787,7 +852,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             ".chat-delete"
                         );
 
-                    if (deleteButton) {
+                    if (
+                        deleteButton
+                    ) {
 
                         deleteButton.addEventListener(
                             "click",
@@ -820,10 +887,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ========================================================
-    // OPEN CHAT
-    // ========================================================
-
     function openChat(id) {
 
         if (
@@ -836,7 +899,9 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        if (isGenerating) {
+        if (
+            isGenerating
+        ) {
 
             showToast(
                 "Please wait for the current response"
@@ -862,10 +927,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         closeMobileSidebar();
     }
-
-    // ========================================================
-    // LAST USER MESSAGE
-    // ========================================================
 
     function getLastUserMessage(
         chat
@@ -908,10 +969,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return "";
     }
 
-    // ========================================================
-    // CHAT DATE
-    // ========================================================
-
     function formatChatDate(
         timestamp
     ) {
@@ -921,7 +978,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const date =
-            new Date(timestamp);
+            new Date(
+                timestamp
+            );
 
         if (
             Number.isNaN(
@@ -935,11 +994,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const now =
             new Date();
 
-        const sameDay =
+        if (
             date.toDateString() ===
-            now.toDateString();
-
-        if (sameDay) {
+            now.toDateString()
+        ) {
 
             return date.toLocaleTimeString(
                 [],
@@ -975,7 +1033,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
 
                 showToast(
                     "Please wait for the current response"
@@ -1008,14 +1068,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
             const chat =
                 getCurrentChat();
 
-            chat.messages = [];
+            chat.messages =
+                [];
 
             chat.title =
                 "New conversation";
@@ -1039,7 +1103,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // DELETE CHAT
     // ========================================================
 
-    function openDeleteModal(id) {
+    function openDeleteModal(
+        id
+    ) {
 
         deleteTargetId =
             id;
@@ -1078,18 +1144,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
             event.preventDefault();
 
-            if (!deleteTargetId) {
+            if (
+                !deleteTargetId
+            ) {
+
                 return;
             }
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
+                showToast(
+                    "Please wait for the current response"
+                );
+
                 return;
             }
 
             const deletingId =
                 deleteTargetId;
 
-            const wasCurrentChat =
+            const wasCurrent =
                 currentChatId ===
                 deletingId;
 
@@ -1100,25 +1176,23 @@ document.addEventListener("DOMContentLoaded", () => {
                         deletingId
                 );
 
-            /*
-             * If deleting the current/last chat,
-             * create a replacement safely.
-             */
+            if (
+                chats.length === 0
+            ) {
 
-            if (wasCurrentChat) {
+                createChat();
 
-                if (
-                    chats.length >
-                    0
-                ) {
+            } else if (
+                wasCurrent
+            ) {
 
-                    currentChatId =
-                        chats[0].id;
+                currentChatId =
+                    chats[0].id;
 
-                } else {
-
-                    createChat();
-                }
+                localStorage.setItem(
+                    CURRENT_CHAT_KEY,
+                    currentChatId
+                );
             }
 
             saveChats();
@@ -1164,7 +1238,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
@@ -1180,7 +1257,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
@@ -1190,7 +1270,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     );
 
-    function setMode(mode) {
+    function setMode(
+        mode
+    ) {
 
         currentMode =
             mode === "premium"
@@ -1375,7 +1457,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     // ========================================================
-    // SEND BUTTON
+    // SEND
     // ========================================================
 
     sendButton?.addEventListener(
@@ -1387,10 +1469,6 @@ document.addEventListener("DOMContentLoaded", () => {
             sendMessage();
         }
     );
-
-    // ========================================================
-    // ENTER TO SEND
-    // ========================================================
 
     messageInput?.addEventListener(
         "keydown",
@@ -1409,13 +1487,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     );
 
-    // ========================================================
-    // SEND MESSAGE
-    // ========================================================
-
     async function sendMessage() {
 
-        if (isGenerating) {
+        if (
+            isGenerating
+        ) {
+
             return;
         }
 
@@ -1437,12 +1514,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        if (welcomeScreen) {
-
-            welcomeScreen.style.display =
-                "none";
-        }
-
         if (selectedFile) {
 
             await solveFile(
@@ -1453,9 +1524,11 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        /*
-         * Save/render the user's message first.
-         */
+        if (welcomeScreen) {
+
+            welcomeScreen.style.display =
+                "none";
+        }
 
         addMessage(
             "user",
@@ -1470,7 +1543,9 @@ document.addEventListener("DOMContentLoaded", () => {
             autoResizeTextarea();
         }
 
-        await askAI(text);
+        await askAI(
+            text
+        );
     }
 
     // ========================================================
@@ -1486,14 +1561,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const normalizedRole =
             normalizeRole(role);
 
-        const cleanContent =
-            String(
-                content || ""
-            );
-
         renderMessage(
             normalizedRole,
-            cleanContent,
+            String(
+                content || ""
+            ),
             true
         );
 
@@ -1510,7 +1582,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 normalizedRole,
 
             content:
-                cleanContent,
+                String(
+                    content || ""
+                ),
 
             timestamp:
                 Date.now()
@@ -1536,7 +1610,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             chat.title =
                 createChatTitle(
-                    cleanContent
+                    content
                 );
         }
 
@@ -1551,16 +1625,14 @@ document.addEventListener("DOMContentLoaded", () => {
         );
     }
 
-    // ========================================================
-    // CHAT TITLE
-    // ========================================================
-
     function createChatTitle(
         text
     ) {
 
         const cleaned =
-            String(text || "")
+            String(
+                text || ""
+            )
                 .replace(
                     /\s+/g,
                     " "
@@ -1573,8 +1645,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (
-            cleaned.length <=
-            35
+            cleaned.length <= 35
         ) {
 
             return cleaned;
@@ -1623,20 +1694,60 @@ document.addEventListener("DOMContentLoaded", () => {
         contentBox.className =
             "message-content";
 
-        /*
-         * IMPORTANT:
-         *
-         * NO AI LOGO HERE.
-         *
-         * The old version created:
-         *
-         * <img src="assets/logo.png">
-         *
-         * for every AI answer.
-         *
-         * That is the reason the large logo
-         * was appearing in replies.
-         */
+        // ----------------------------------------------------
+        // AI AVATAR
+        // ----------------------------------------------------
+
+        if (
+            role === "ai"
+        ) {
+
+            const avatar =
+                document.createElement(
+                    "div"
+                );
+
+            avatar.className =
+                "ai-avatar";
+
+            const img =
+                document.createElement(
+                    "img"
+                );
+
+            img.src =
+                "assets/logo.png";
+
+            img.alt =
+                "Siksha AI";
+
+            /*
+             * Prevent a broken logo from creating
+             * an ugly giant broken-image area.
+             */
+
+            img.onerror =
+                () => {
+
+                    avatar.classList.add(
+                        "logo-failed"
+                    );
+
+                    img.remove();
+                };
+
+            avatar.appendChild(
+                img
+            );
+
+            wrapper.appendChild(
+                avatar
+            );
+        }
+
+        // ----------------------------------------------------
+        // MESSAGE BUBBLE
+        // ----------------------------------------------------
 
         const bubble =
             document.createElement(
@@ -1650,13 +1761,22 @@ document.addEventListener("DOMContentLoaded", () => {
             role === "ai"
         ) {
 
-            bubble.innerHTML = `
-                <div class="ai-response">
-                    ${formatAIResponse(
-                        content
-                    )}
-                </div>
-            `;
+            const response =
+                document.createElement(
+                    "div"
+                );
+
+            response.className =
+                "ai-response";
+
+            response.innerHTML =
+                formatAIResponse(
+                    content
+                );
+
+            bubble.appendChild(
+                response
+            );
 
         } else {
 
@@ -1667,6 +1787,10 @@ document.addEventListener("DOMContentLoaded", () => {
         contentBox.appendChild(
             bubble
         );
+
+        // ----------------------------------------------------
+        // META
+        // ----------------------------------------------------
 
         const meta =
             document.createElement(
@@ -1689,15 +1813,16 @@ document.addEventListener("DOMContentLoaded", () => {
             contentBox
         );
 
-        /*
-         * SAFE INSERT
-         *
-         * Always ensure typingIndicator
-         * is attached before using it
-         * as an insertion reference.
-         */
+        // ----------------------------------------------------
+        // SAFE INSERT
+        // ----------------------------------------------------
 
         ensureTypingIndicator();
+
+        /*
+         * Only use insertBefore if typingIndicator
+         * is actually inside messages.
+         */
 
         if (
             typingIndicator &&
@@ -1725,14 +1850,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================================
-    // AI REQUEST
+    // ASK AI
     // ========================================================
 
     async function askAI(
         userText
     ) {
 
-        setGenerating(true);
+        setGenerating(
+            true
+        );
 
         showTyping();
 
@@ -1742,16 +1869,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 getCurrentChat();
 
             /*
-             * IMPORTANT FIX:
+             * The current user message has already been
+             * stored locally before askAI().
              *
-             * The current user message has already
-             * been stored in chat.messages.
-             *
-             * Backend also receives it separately
-             * as "message".
-             *
-             * Therefore we EXCLUDE the latest
-             * user message from history.
+             * Therefore exclude the last message from
+             * history to prevent sending it twice.
              */
 
             const previousMessages =
@@ -1768,25 +1890,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 previousMessages.map(
                     message => {
 
-                        const originalRole =
-                            message.role;
-
-                        const role =
-                            (
-                                originalRole ===
-                                    "ai" ||
-                                originalRole ===
-                                    "assistant" ||
-                                originalRole ===
-                                    "model"
-                            )
-                                ? "model"
-                                : "user";
+                        const normalized =
+                            normalizeRole(
+                                message.role
+                            );
 
                         return {
 
                             role:
-                                role,
+                                normalized ===
+                                    "ai"
+                                    ? "model"
+                                    : "user",
 
                             content:
                                 String(
@@ -1821,8 +1936,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                 history:
                                     history
                             })
-                    },
-                    REQUEST_TIMEOUT
+                    }
                 );
 
             const data =
@@ -1832,10 +1946,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
-            if (!response.ok) {
+            if (
+                !response.ok
+            ) {
 
                 throw new Error(
-                    getBackendError(
+                    getServerError(
                         data,
                         response.status
                     )
@@ -1878,22 +1994,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
-            const errorMessage =
-                friendlyConnectionError(
-                    error
-                );
+            /*
+             * Show a friendly error, but don't make the
+             * error itself look like a normal AI answer
+             * with the huge logo/avatar.
+             */
 
-            addMessage(
-                "ai",
-                `⚠️ **Siksha AI connection error**
-
-${errorMessage}
-
-Please try again in a few seconds.`
-            );
-
-            showToast(
-                "Could not connect to Siksha AI"
+            showConnectionError(
+                error
             );
 
         } finally {
@@ -1905,155 +2013,149 @@ Please try again in a few seconds.`
     }
 
     // ========================================================
-    // FETCH WITH TIMEOUT
+    // CONNECTION ERROR
     // ========================================================
 
-    async function fetchWithTimeout(
-        url,
-        options = {},
-        timeout =
-            REQUEST_TIMEOUT
+    function showConnectionError(
+        error
     ) {
 
-        const controller =
-            new AbortController();
+        const message =
+            error?.message ||
+            "Please try again in a few seconds.";
 
-        const timeoutId =
-            setTimeout(
-                () => {
-                    controller.abort();
-                },
-                timeout
+        /*
+         * Create a special system error element.
+         * This avoids storing connection errors inside
+         * conversation memory.
+         */
+
+        const errorBox =
+            document.createElement(
+                "div"
             );
 
-        try {
+        errorBox.className =
+            "message ai system-error";
 
-            return await fetch(
-                url,
-                {
-                    ...options,
-                    signal:
-                        controller.signal
-                }
+        const contentBox =
+            document.createElement(
+                "div"
             );
 
-        } finally {
+        contentBox.className =
+            "message-content";
 
-            clearTimeout(
-                timeoutId
+        const bubble =
+            document.createElement(
+                "div"
             );
+
+        bubble.className =
+            "message-bubble";
+
+        const response =
+            document.createElement(
+                "div"
+            );
+
+        response.className =
+            "ai-response";
+
+        response.innerHTML = `
+            <strong>⚠️ Siksha AI connection error</strong>
+            <br><br>
+            ${escapeHTML(message)}
+            <br><br>
+            Please try again in a few seconds.
+        `;
+
+        bubble.appendChild(
+            response
+        );
+
+        contentBox.appendChild(
+            bubble
+        );
+
+        errorBox.appendChild(
+            contentBox
+        );
+
+        ensureTypingIndicator();
+
+        if (
+            typingIndicator &&
+            typingIndicator.parentNode ===
+                messages
+        ) {
+
+            messages.insertBefore(
+                errorBox,
+                typingIndicator
+            );
+
+        } else {
+
+            messages.appendChild(
+                errorBox
+            );
+
+            ensureTypingIndicator();
         }
+
+        scrollToBottom();
+
+        showToast(
+            "Could not connect to Siksha AI"
+        );
     }
 
-    // ========================================================
-    // BACKEND ERROR
-    // ========================================================
-
-    function getBackendError(
+    function getServerError(
         data,
         status
     ) {
 
-        const raw =
-            extractAnswer(
-                data
-            ) ||
-            (
-                data &&
-                data.error
-                    ? data.error
-                    : ""
-            );
+        if (
+            data &&
+            typeof data ===
+                "object"
+        ) {
 
-        if (raw) {
-            return String(raw);
+            if (
+                data.error
+            ) {
+
+                return String(
+                    data.error
+                );
+            }
+
+            if (
+                data.message
+            ) {
+
+                return String(
+                    data.message
+                );
+            }
         }
 
         if (
-            status === 404
+            status === 429
         ) {
 
-            return (
-                "The requested Siksha AI endpoint was not found."
-            );
+            return "Too many requests. Please wait a moment and try again.";
         }
 
         if (
             status >= 500
         ) {
 
-            return (
-                "The Siksha AI server is temporarily unavailable."
-            );
+            return "The Siksha AI server encountered an error. Please try again.";
         }
 
-        return (
-            `The server returned an error (${status}).`
-        );
-    }
-
-    // ========================================================
-    // FRIENDLY CONNECTION ERROR
-    // ========================================================
-
-    function friendlyConnectionError(
-        error
-    ) {
-
-        if (
-            !navigator.onLine
-        ) {
-
-            return (
-                "You appear to be offline. Please check your internet connection."
-            );
-        }
-
-        if (
-            error &&
-            error.name ===
-                "AbortError"
-        ) {
-
-            return (
-                "The Siksha AI server is taking longer than usual to wake up. Please try again."
-            );
-        }
-
-        const message =
-            String(
-                error?.message ||
-                ""
-            );
-
-        if (
-            message.toLowerCase()
-                .includes(
-                    "failed to fetch"
-                )
-        ) {
-
-            return (
-                "The frontend could not reach the Siksha AI server. The server may be waking up or temporarily unavailable."
-            );
-        }
-
-        if (
-            message.toLowerCase()
-                .includes(
-                    "networkerror"
-                )
-        ) {
-
-            return (
-                "A network error occurred while contacting the Siksha AI server."
-            );
-        }
-
-        return (
-            message ||
-            "Siksha AI could not process your request right now."
-        );
+        return `Server returned HTTP ${status}.`;
     }
 
     // ========================================================
@@ -2091,6 +2193,13 @@ Please try again in a few seconds.`
         const text =
             await response.text();
 
+        if (!text) {
+
+            return {
+                text: ""
+            };
+        }
+
         try {
 
             return JSON.parse(
@@ -2105,10 +2214,6 @@ Please try again in a few seconds.`
             };
         }
     }
-
-    // ========================================================
-    // EXTRACT ANSWER
-    // ========================================================
 
     function extractAnswer(
         data
@@ -2126,24 +2231,15 @@ Please try again in a few seconds.`
             return data;
         }
 
-        /*
-         * Keep this broad so the frontend can work
-         * with different backend response formats.
-         */
-
-        const answer =
+        return (
             data.answer ||
             data.response ||
             data.reply ||
             data.text ||
+            data.message ||
             data.output ||
-            data.content ||
-            "";
-
-        return typeof answer ===
-            "string"
-            ? answer
-            : String(answer || "");
+            ""
+        );
     }
 
     // ========================================================
@@ -2173,6 +2269,12 @@ Please try again in a few seconds.`
             attachButton.disabled =
                 isGenerating;
         }
+
+        if (talkButton) {
+
+            talkButton.disabled =
+                isGenerating;
+        }
     }
 
     // ========================================================
@@ -2185,7 +2287,10 @@ Please try again in a few seconds.`
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
@@ -2217,13 +2322,17 @@ Please try again in a few seconds.`
         file
     ) {
 
-        if (filePreviewName) {
+        if (
+            filePreviewName
+        ) {
 
             filePreviewName.textContent =
                 file.name;
         }
 
-        if (filePreviewSize) {
+        if (
+            filePreviewSize
+        ) {
 
             filePreviewSize.textContent =
                 formatFileSize(
@@ -2289,10 +2398,6 @@ Please try again in a few seconds.`
         ).toFixed(1)} MB`;
     }
 
-    // ========================================================
-    // SOLVE FILE
-    // ========================================================
-
     async function solveFile(
         question,
         file
@@ -2339,8 +2444,7 @@ Please try again in a few seconds.`
 
                         body:
                             formData
-                    },
-                    REQUEST_TIMEOUT
+                    }
                 );
 
             const data =
@@ -2350,10 +2454,12 @@ Please try again in a few seconds.`
 
             hideTyping();
 
-            if (!response.ok) {
+            if (
+                !response.ok
+            ) {
 
                 throw new Error(
-                    getBackendError(
+                    getServerError(
                         data,
                         response.status
                     )
@@ -2403,13 +2509,8 @@ Please try again in a few seconds.`
 
             hideTyping();
 
-            addMessage(
-                "ai",
-                `⚠️ **File processing failed**
-
-${friendlyConnectionError(
-    error
-)}`
+            showConnectionError(
+                error
             );
 
             showToast(
@@ -2493,7 +2594,9 @@ ${friendlyConnectionError(
                             .transcript;
                 }
 
-                if (messageInput) {
+                if (
+                    messageInput
+                ) {
 
                     messageInput.value =
                         transcript;
@@ -2536,18 +2639,25 @@ ${friendlyConnectionError(
 
             event.preventDefault();
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
-            if (isListening) {
+            if (
+                isListening
+            ) {
 
                 stopListening();
 
                 return;
             }
 
-            if (!recognition) {
+            if (
+                !recognition
+            ) {
 
                 showToast(
                     "Voice input is not supported in this browser"
@@ -2582,7 +2692,9 @@ ${friendlyConnectionError(
 
     function stopListening() {
 
-        if (recognition) {
+        if (
+            recognition
+        ) {
 
             try {
 
@@ -2646,10 +2758,12 @@ ${friendlyConnectionError(
                                     currentMode
                             })
                     },
-                    REQUEST_TIMEOUT
+                    45000
                 );
 
-            if (!response.ok) {
+            if (
+                !response.ok
+            ) {
 
                 throw new Error(
                     "TTS request failed"
@@ -2701,21 +2815,12 @@ ${friendlyConnectionError(
 
         } catch (error) {
 
-            /*
-             * TTS failure should NEVER
-             * break the normal AI response.
-             */
-
             console.warn(
                 "TTS unavailable:",
                 error
             );
         }
     }
-
-    // ========================================================
-    // PLAY AUDIO
-    // ========================================================
 
     function playAudioBlob(
         blob
@@ -2727,7 +2832,9 @@ ${friendlyConnectionError(
             );
 
         currentAudio =
-            new Audio(url);
+            new Audio(
+                url
+            );
 
         currentAudio.onended =
             () => {
@@ -2764,13 +2871,12 @@ ${friendlyConnectionError(
             );
     }
 
-    // ========================================================
-    // STOP AUDIO
-    // ========================================================
-
     function stopCurrentAudio() {
 
-        if (!currentAudio) {
+        if (
+            !currentAudio
+        ) {
+
             return;
         }
 
@@ -2786,10 +2892,6 @@ ${friendlyConnectionError(
         currentAudio =
             null;
     }
-
-    // ========================================================
-    // BASE64 TO BLOB
-    // ========================================================
 
     function base64ToBlob(
         base64,
@@ -2858,10 +2960,6 @@ ${friendlyConnectionError(
         );
     }
 
-    // ========================================================
-    // SPEECH CLEANER
-    // ========================================================
-
     function stripMarkdownForSpeech(
         text
     ) {
@@ -2882,26 +2980,6 @@ ${friendlyConnectionError(
                 " mathematical expression "
             )
             .replace(
-                /\\frac\{([^{}]*)\}\{([^{}]*)\}/g,
-                "$1 divided by $2"
-            )
-            .replace(
-                /\\sqrt\{([^{}]*)\}/g,
-                "square root of $1"
-            )
-            .replace(
-                /\\times/g,
-                " times "
-            )
-            .replace(
-                /\\cdot/g,
-                " times "
-            )
-            .replace(
-                /\\pm/g,
-                " plus or minus "
-            )
-            .replace(
                 /\s+/g,
                 " "
             )
@@ -2909,7 +2987,7 @@ ${friendlyConnectionError(
     }
 
     // ========================================================
-    // MARKDOWN + MATH
+    // AI RESPONSE FORMATTER
     // ========================================================
 
     function formatAIResponse(
@@ -2932,7 +3010,7 @@ ${friendlyConnectionError(
                 );
 
         // ----------------------------------------------------
-        // Protect code blocks
+        // CODE BLOCKS
         // ----------------------------------------------------
 
         const protectedBlocks =
@@ -2952,12 +3030,12 @@ ${friendlyConnectionError(
                         )}</code></pre>`
                     );
 
-                    return `SIAI_CODE_${index}_SIAI`;
+                    return `SIAI_CODE_${index}_END`;
                 }
             );
 
         // ----------------------------------------------------
-        // Protect display math
+        // DISPLAY MATH
         // ----------------------------------------------------
 
         const protectedMath =
@@ -2977,7 +3055,7 @@ ${friendlyConnectionError(
                         )
                     );
 
-                    return `SIAI_MATH_${index}_SIAI`;
+                    return `SIAI_MATH_${index}_END`;
                 }
             );
 
@@ -2995,12 +3073,12 @@ ${friendlyConnectionError(
                         )
                     );
 
-                    return `SIAI_MATH_${index}_SIAI`;
+                    return `SIAI_MATH_${index}_END`;
                 }
             );
 
         // ----------------------------------------------------
-        // Inline math
+        // INLINE MATH
         // ----------------------------------------------------
 
         value =
@@ -3017,7 +3095,7 @@ ${friendlyConnectionError(
                         )
                     );
 
-                    return `SIAI_MATH_${index}_SIAI`;
+                    return `SIAI_MATH_${index}_END`;
                 }
             );
 
@@ -3035,12 +3113,12 @@ ${friendlyConnectionError(
                         )
                     );
 
-                    return `SIAI_MATH_${index}_SIAI`;
+                    return `SIAI_MATH_${index}_END`;
                 }
             );
 
         // ----------------------------------------------------
-        // Escape HTML
+        // ESCAPE HTML
         // ----------------------------------------------------
 
         value =
@@ -3049,7 +3127,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Headings
+        // HEADINGS
         // ----------------------------------------------------
 
         value =
@@ -3071,7 +3149,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Bold
+        // BOLD
         // ----------------------------------------------------
 
         value =
@@ -3081,7 +3159,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Italic
+        // ITALIC
         // ----------------------------------------------------
 
         value =
@@ -3091,7 +3169,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Inline code
+        // INLINE CODE
         // ----------------------------------------------------
 
         value =
@@ -3101,7 +3179,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Blockquotes
+        // BLOCKQUOTES
         // ----------------------------------------------------
 
         value =
@@ -3111,12 +3189,12 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Numbered lists
+        // NUMBERED LISTS
         // ----------------------------------------------------
 
         value =
             value.replace(
-                /(?:^|\n)((?:\d+\.\s.+\n?)+)/g,
+                /(?:^|\n)((?:\d+\.\s.+(?:\n|$))+)/g,
                 (_, block) => {
 
                     const items =
@@ -3130,7 +3208,9 @@ ${friendlyConnectionError(
                                         ""
                                     )
                             )
-                            .filter(Boolean)
+                            .filter(
+                                Boolean
+                            )
                             .map(
                                 item =>
                                     `<li>${item}</li>`
@@ -3142,12 +3222,12 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Bullet lists
+        // BULLET LISTS
         // ----------------------------------------------------
 
         value =
             value.replace(
-                /(?:^|\n)((?:[-•]\s.+\n?)+)/g,
+                /(?:^|\n)((?:[-•]\s.+(?:\n|$))+)/g,
                 (_, block) => {
 
                     const items =
@@ -3161,7 +3241,9 @@ ${friendlyConnectionError(
                                         ""
                                     )
                             )
-                            .filter(Boolean)
+                            .filter(
+                                Boolean
+                            )
                             .map(
                                 item =>
                                     `<li>${item}</li>`
@@ -3173,7 +3255,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Line breaks
+        // NEWLINES
         // ----------------------------------------------------
 
         value =
@@ -3189,7 +3271,7 @@ ${friendlyConnectionError(
             );
 
         // ----------------------------------------------------
-        // Restore math
+        // RESTORE MATH
         // ----------------------------------------------------
 
         protectedMath.forEach(
@@ -3197,14 +3279,14 @@ ${friendlyConnectionError(
 
                 value =
                     value.replace(
-                        `SIAI_MATH_${index}_SIAI`,
+                        `SIAI_MATH_${index}_END`,
                         html
                     );
             }
         );
 
         // ----------------------------------------------------
-        // Restore code
+        // RESTORE CODE
         // ----------------------------------------------------
 
         protectedBlocks.forEach(
@@ -3212,7 +3294,7 @@ ${friendlyConnectionError(
 
                 value =
                     value.replace(
-                        `SIAI_CODE_${index}_SIAI`,
+                        `SIAI_CODE_${index}_END`,
                         html
                     );
             }
@@ -3259,81 +3341,8 @@ ${friendlyConnectionError(
             );
 
         expression =
-            expression.replace(
-                /\\times/g,
-                "×"
-            );
-
-        expression =
-            expression.replace(
-                /\\cdot/g,
-                "·"
-            );
-
-        expression =
-            expression.replace(
-                /\\pm/g,
-                "±"
-            );
-
-        expression =
-            expression.replace(
-                /\\leq/g,
-                "≤"
-            );
-
-        expression =
-            expression.replace(
-                /\\geq/g,
-                "≥"
-            );
-
-        expression =
-            expression.replace(
-                /\\neq/g,
-                "≠"
-            );
-
-        expression =
-            expression.replace(
-                /\\rightarrow/g,
-                "→"
-            );
-
-        expression =
-            expression.replace(
-                /\\pi/g,
-                "π"
-            );
-
-        expression =
-            expression.replace(
-                /\\theta/g,
-                "θ"
-            );
-
-        expression =
-            expression.replace(
-                /\\alpha/g,
-                "α"
-            );
-
-        expression =
-            expression.replace(
-                /\\beta/g,
-                "β"
-            );
-
-        expression =
-            expression.replace(
-                /\\gamma/g,
-                "γ"
-            );
-
-        expression =
-            expression.replace(
-                /\\Delta/g,
-                "Δ"
+            replaceMathCommands(
+                expression
             );
 
         expression =
@@ -3411,69 +3420,8 @@ ${friendlyConnectionError(
             );
 
         expression =
-            expression.replace(
-                /\\text\{([^{}]*)\}/g,
-                '<span class="math-text">$1</span>'
-            );
-
-        expression =
-            expression.replace(
-                /\\times/g,
-                "×"
-            );
-
-        expression =
-            expression.replace(
-                /\\cdot/g,
-                "·"
-            );
-
-        expression =
-            expression.replace(
-                /\\pm/g,
-                "±"
-            );
-
-        expression =
-            expression.replace(
-                /\\leq/g,
-                "≤"
-            );
-
-        expression =
-            expression.replace(
-                /\\geq/g,
-                "≥"
-            );
-
-        expression =
-            expression.replace(
-                /\\neq/g,
-                "≠"
-            );
-
-        expression =
-            expression.replace(
-                /\\pi/g,
-                "π"
-            );
-
-        expression =
-            expression.replace(
-                /\\theta/g,
-                "θ"
-            );
-
-        expression =
-            expression.replace(
-                /\\alpha/g,
-                "α"
-            );
-
-        expression =
-            expression.replace(
-                /\\beta/g,
-                "β"
+            replaceMathCommands(
+                expression
             );
 
         expression =
@@ -3500,24 +3448,6 @@ ${friendlyConnectionError(
                 "<sub>$1</sub>"
             );
 
-        expression =
-            expression.replace(
-                /\\left/g,
-                ""
-            );
-
-        expression =
-            expression.replace(
-                /\\right/g,
-                ""
-            );
-
-        expression =
-            expression.replace(
-                /\\,/g,
-                " "
-            );
-
         return `
             <span class="math-text">
                 ${expression}
@@ -3525,8 +3455,108 @@ ${friendlyConnectionError(
         `;
     }
 
+    function replaceMathCommands(
+        expression
+    ) {
+
+        const replacements = {
+
+            "\\times":
+                "×",
+
+            "\\cdot":
+                "·",
+
+            "\\pm":
+                "±",
+
+            "\\leq":
+                "≤",
+
+            "\\geq":
+                "≥",
+
+            "\\neq":
+                "≠",
+
+            "\\rightarrow":
+                "→",
+
+            "\\leftarrow":
+                "←",
+
+            "\\approx":
+                "≈",
+
+            "\\infty":
+                "∞",
+
+            "\\pi":
+                "π",
+
+            "\\theta":
+                "θ",
+
+            "\\alpha":
+                "α",
+
+            "\\beta":
+                "β",
+
+            "\\gamma":
+                "γ",
+
+            "\\delta":
+                "δ",
+
+            "\\lambda":
+                "λ",
+
+            "\\mu":
+                "μ",
+
+            "\\sigma":
+                "σ",
+
+            "\\omega":
+                "ω"
+        };
+
+        Object.entries(
+            replacements
+        ).forEach(
+            ([command, symbol]) => {
+
+                expression =
+                    expression.replace(
+                        new RegExp(
+                            escapeRegExp(
+                                command
+                            ),
+                            "g"
+                        ),
+                        symbol
+                    );
+            }
+        );
+
+        return expression;
+    }
+
+    function escapeRegExp(
+        value
+    ) {
+
+        return String(
+            value
+        ).replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+        );
+    }
+
     // ========================================================
-    // ESCAPE HTML
+    // SAFE HTML
     // ========================================================
 
     function escapeHTML(
@@ -3569,7 +3599,10 @@ ${friendlyConnectionError(
 
     function autoResizeTextarea() {
 
-        if (!messageInput) {
+        if (
+            !messageInput
+        ) {
+
             return;
         }
 
@@ -3632,7 +3665,9 @@ ${friendlyConnectionError(
             return;
         }
 
-        if (toastMessage) {
+        if (
+            toastMessage
+        ) {
 
             toastMessage.textContent =
                 message;
@@ -3696,7 +3731,7 @@ ${friendlyConnectionError(
     }
 
     // ========================================================
-    // ESCAPE
+    // ESCAPE KEY
     // ========================================================
 
     document.addEventListener(
@@ -3771,10 +3806,6 @@ ${friendlyConnectionError(
 
     // ========================================================
     // IMAGE FALLBACK
-    //
-    // Kept for other images in the UI.
-    // Since AI message avatar was removed,
-    // this will no longer affect AI responses.
     // ========================================================
 
     document.addEventListener(
@@ -3786,14 +3817,18 @@ ${friendlyConnectionError(
 
             if (
                 target instanceof
-                    HTMLImageElement &&
-                target.src.includes(
-                    "assets/logo.png"
-                )
+                HTMLImageElement
             ) {
 
-                target.style.display =
-                    "none";
+                if (
+                    target.src.includes(
+                        "assets/logo.png"
+                    )
+                ) {
+
+                    target.style.display =
+                        "none";
+                }
             }
 
         },
@@ -3808,7 +3843,10 @@ ${friendlyConnectionError(
 
         newChat: () => {
 
-            if (isGenerating) {
+            if (
+                isGenerating
+            ) {
+
                 return;
             }
 
@@ -3852,10 +3890,12 @@ ${friendlyConnectionError(
             return sendMessage();
         },
 
-        getBackend: () => {
+        stopVoice: () => {
 
-            return API_BASE;
-        }
+            stopCurrentAudio();
+        },
+
+        backend: API_BASE
     };
 
 });
