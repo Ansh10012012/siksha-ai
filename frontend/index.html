@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="Siksha AI — Your intelligent AI learning assistant."
+    >
+
+    <meta
+        name="theme-color"
+        content="#090612"
+    >
+
+    <title>Siksha AI — Intelligent Learning Assistant</title>
+
+    <!-- =====================================================
+         GOOGLE FONT
+    ====================================================== -->
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
+    <!-- =====================================================
+         MAIN CSS
+    ====================================================== -->
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+</head>
+
+<body>
+
+    <!-- =====================================================
+         ANIMATED BACKGROUND
+    ====================================================== -->
+
+    <div class="background" aria-hidden="true">
+
+        <div class="background-orb orb1"></div>
+        <div class="background-orb orb2"></div>
+        <div class="background-orb orb3"></div>
+
+        <div class="background-grid"></div>
+
+        <div class="background-particles">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         APP SHELL
+    ====================================================== -->
+
+    <main class="app-shell">
+
+
+        <!-- =================================================
+             SIDEBAR
+        ================================================== -->
+
+        <aside
+            class="sidebar"
+            id="sidebar"
+        >
+
+            <!-- Sidebar Brand -->
+
+            <div class="sidebar-brand">
+
+                <div class="brand-logo-wrap">
+
+                    <img
+                        src="assets/logo.png"
+                        alt="Siksha AI"
+                        class="brand-logo"
+                        onerror="this.style.display='none'"
+                    >
+
+                    <div
+                        class="brand-logo-fallback"
+                        aria-hidden="true"
+                    >
+                        S
+                    </div>
+
+                </div>
+
+                <div class="brand-text">
+
+                    <div class="brand-name">
+                        Siksha <span>AI</span>
+                    </div>
+
+                    <div class="brand-tagline">
+                        Intelligent Learning
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- New Chat -->
+
+            <button
+                class="new-chat-button"
+                id="newChatButton"
+                type="button"
+            >
+
+                <span class="button-icon">＋</span>
+
+                <span>
+                    New Chat
+                </span>
+
+            </button>
+
+
+            <!-- Mode Selector -->
+
+            <div class="mode-section">
+
+                <div class="sidebar-section-label">
+                    AI MODE
+                </div>
+
+
+                <div class="mode-selector">
+
+                    <button
+                        class="mode-button active"
+                        id="normalModeButton"
+                        type="button"
+                    >
+
+                        <span class="mode-icon">
+                            ✦
+                        </span>
+
+                        <span class="mode-content">
+
+                            <strong>
+                                Normal
+                            </strong>
+
+                            <small>
+                                Fast &amp; balanced
+                            </small>
+
+                        </span>
+
+                    </button>
+
+
+                    <button
+                        class="mode-button"
+                        id="premiumModeButton"
+                        type="button"
+                    >
+
+                        <span class="mode-icon premium-star">
+                            ✦
+                        </span>
+
+                        <span class="mode-content">
+
+                            <strong>
+                                Premium
+                            </strong>
+
+                            <small>
+                                Deeper intelligence
+                            </small>
+
+                        </span>
+
+                        <span class="premium-mini-badge">
+                            PRO
+                        </span>
+
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <!-- Recent Chats -->
+
+            <section class="recent-chats-section">
+
+                <div class="recent-chats-heading">
+
+                    <div class="sidebar-section-label">
+                        RECENT CHATS
+                    </div>
+
+                    <span
+                        class="chat-count"
+                        id="chatCount"
+                    >
+                        0
+                    </span>
+
+                </div>
+
+
+                <!-- Search -->
+
+                <div class="chat-search">
+
+                    <span class="search-icon">
+                        ⌕
+                    </span>
+
+                    <input
+                        type="text"
+                        id="chatSearchInput"
+                        placeholder="Search chats..."
+                        autocomplete="off"
+                    >
+
+                </div>
+
+
+                <!-- Chat List -->
+
+                <div
+                    class="recent-chats"
+                    id="recentChats"
+                >
+                </div>
+
+
+                <!-- Empty State -->
+
+                <div
+                    class="empty-chats"
+                    id="emptyChats"
+                >
+
+                    <div class="empty-chats-icon">
+                        ◌
+                    </div>
+
+                    <p>
+                        No conversations yet
+                    </p>
+
+                    <small>
+                        Start a new chat with Siksha AI
+                    </small>
+
+                </div>
+
+            </section>
+
+
+            <!-- Sidebar Footer -->
+
+            <div class="sidebar-footer">
+
+                <div class="sidebar-status">
+
+                    <span class="status-dot"></span>
+
+                    <span>
+                        Siksha AI Online
+                    </span>
+
+                </div>
+
+                <div class="sidebar-version">
+                    v3.0
+                </div>
+
+            </div>
+
+        </aside>
+
+
+        <!-- =================================================
+             MAIN CHAT AREA
+        ================================================== -->
+
+        <section class="chat-area">
+
+
+            <!-- =============================================
+                 CHAT HEADER
+            ============================================== -->
+
+            <header class="chat-header">
+
+                <div class="mobile-menu-area">
+
+                    <button
+                        class="icon-button mobile-menu-button"
+                        id="mobileMenuButton"
+                        type="button"
+                        aria-label="Open menu"
+                    >
+                        ☰
+                    </button>
+
+                </div>
+
+
+                <div class="chat-title-area">
+
+                    <div class="ai-status-avatar">
+
+                        <img
+                            src="assets/logo.png"
+                            alt=""
+                            class="header-logo"
+                            onerror="this.style.display='none'"
+                        >
+
+                        <span class="header-logo-fallback">
+                            S
+                        </span>
+
+                        <span class="online-ring"></span>
+
+                    </div>
+
+
+                    <div class="chat-title-content">
+
+                        <div class="chat-title-row">
+
+                            <h1 id="modeTitle">
+                                Siksha AI
+                            </h1>
+
+                            <span
+                                class="mode-pill"
+                                id="modePill"
+                            >
+                                NORMAL
+                            </span>
+
+                        </div>
+
+                        <p id="modeSubtitle">
+                            Your intelligent learning assistant
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="chat-header-actions">
+
+                    <button
+                        class="header-action"
+                        id="clearButton"
+                        type="button"
+                        title="Clear current chat"
+                        aria-label="Clear current chat"
+                    >
+                        ⌫
+                    </button>
+
+                </div>
+
+            </header>
+
+
+            <!-- =============================================
+                 MESSAGES
+            ============================================== -->
+
+            <div
+                class="messages"
+                id="messages"
+            >
+
+
+                <!-- =========================================
+                     WELCOME SCREEN
+                ========================================== -->
+
+                <div
+                    class="welcome-screen"
+                    id="welcomeScreen"
+                >
+
+                    <div class="welcome-glow"></div>
+
+
+                    <div class="welcome-logo">
+
+                        <div class="welcome-logo-ring"></div>
+
+                        <img
+                            src="assets/logo.png"
+                            alt="Siksha AI"
+                            onerror="this.style.display='none'"
+                        >
+
+                        <span class="welcome-logo-fallback">
+                            S
+                        </span>
+
+                    </div>
+
+
+                    <div class="welcome-badge">
+                        <span class="welcome-badge-dot"></span>
+                        AI LEARNING ASSISTANT
+                    </div>
+
+
+                    <h2>
+                        Learn smarter with
+                        <span>Siksha AI</span>
+                    </h2>
+
+
+                    <p class="welcome-description">
+                        Ask questions, solve problems, understand
+                        difficult concepts, analyse files and learn
+                        at your own pace.
+                    </p>
+
+
+                    <!-- Quick Prompts -->
+
+                    <div class="quick-prompts">
+
+                        <button
+                            class="quick-prompt"
+                            type="button"
+                            data-prompt="Explain Newton's Third Law for a Class 9 ICSE student in simple Hinglish."
+                        >
+
+                            <span class="quick-prompt-icon">
+                                ⚛
+                            </span>
+
+                            <span>
+                                Explain a concept
+                            </span>
+
+                        </button>
+
+
+                        <button
+                            class="quick-prompt"
+                            type="button"
+                            data-prompt="Solve this mathematics problem step by step and explain every calculation clearly."
+                        >
+
+                            <span class="quick-prompt-icon">
+                                ∑
+                            </span>
+
+                            <span>
+                                Solve a problem
+                            </span>
+
+                        </button>
+
+
+                        <button
+                            class="quick-prompt"
+                            type="button"
+                            data-prompt="Give me an exam-ready revision summary with the most important points and common mistakes."
+                        >
+
+                            <span class="quick-prompt-icon">
+                                📚
+                            </span>
+
+                            <span>
+                                Exam revision
+                            </span>
+
+                        </button>
+
+
+                        <button
+                            class="quick-prompt"
+                            type="button"
+                            data-prompt="Teach me this topic from the basics and gradually take me to advanced level."
+                        >
+
+                            <span class="quick-prompt-icon">
+                                🧠
+                            </span>
+
+                            <span>
+                                Learn deeply
+                            </span>
+
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <!-- =========================================
+                     TYPING INDICATOR
+                ========================================== -->
+
+                <div
+                    class="typing-indicator"
+                    id="typingIndicator"
+                    aria-hidden="true"
+                >
+
+                    <div class="typing-avatar">
+                        S
+                    </div>
+
+                    <div class="typing-bubble">
+
+                        <span></span>
+                        <span></span>
+                        <span></span>
+
+                    </div>
+
+                    <span class="typing-text">
+                        Siksha AI is thinking...
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <!-- =============================================
+                 FILE PREVIEW
+            ============================================== -->
+
+            <div
+                class="file-preview"
+                id="filePreview"
+            >
+
+                <div class="file-preview-icon">
+                    📎
+                </div>
+
+                <div class="file-preview-info">
+
+                    <strong
+                        id="filePreviewName"
+                    >
+                        File
+                    </strong>
+
+                    <small
+                        id="filePreviewSize"
+                    >
+                        0 KB
+                    </small>
+
+                </div>
+
+                <button
+                    class="remove-file-button"
+                    id="removeFileButton"
+                    type="button"
+                    aria-label="Remove file"
+                >
+                    ×
+                </button>
+
+            </div>
+
+
+            <!-- =============================================
+                 INPUT AREA
+            ============================================== -->
+
+            <div class="input-area">
+
+
+                <!-- Voice/Talk Panel -->
+
+                <div
+                    class="voice-panel"
+                    id="voicePanel"
+                >
+
+                    <div class="voice-visualizer">
+
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+
+                    </div>
+
+                    <div class="voice-info">
+
+                        <strong>
+                            Listening...
+                        </strong>
+
+                        <small>
+                            Speak clearly to Siksha AI
+                        </small>
+
+                    </div>
+
+                    <button
+                        class="voice-stop-button"
+                        id="voiceStopButton"
+                        type="button"
+                    >
+                        Stop
+                    </button>
+
+                </div>
+
+
+                <!-- Main Input -->
+
+                <div class="composer">
+
+                    <div class="composer-top">
+
+
+                        <!-- Attach -->
+
+                        <button
+                            class="composer-tool"
+                            id="attachButton"
+                            type="button"
+                            title="Upload file"
+                            aria-label="Upload file"
+                        >
+
+                            <span>
+                                📎
+                            </span>
+
+                        </button>
+
+                        <input
+                            type="file"
+                            id="fileInput"
+                            hidden
+                            accept=".pdf,.txt,.md,.csv,.json,.py,.js,.html,.css,.java,.c,.cpp,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.mp4,.mov"
+                        >
+
+
+                        <!-- Text Input -->
+
+                        <textarea
+                            id="messageInput"
+                            rows="1"
+                            maxlength="12000"
+                            placeholder="Ask Siksha AI anything..."
+                            autocomplete="off"
+                            spellcheck="true"
+                        ></textarea>
+
+
+                        <!-- Talk -->
+
+                        <button
+                            class="composer-tool talk-button"
+                            id="talkButton"
+                            type="button"
+                            title="Voice input"
+                            aria-label="Voice input"
+                        >
+
+                            <span class="mic-icon">
+                                🎙
+                            </span>
+
+                        </button>
+
+
+                        <!-- Send -->
+
+                        <button
+                            class="send-button"
+                            id="sendButton"
+                            type="button"
+                            title="Send message"
+                            aria-label="Send message"
+                        >
+
+                            <span class="send-icon">
+                                ➤
+                            </span>
+
+                        </button>
+
+                    </div>
+
+
+                    <div class="composer-bottom">
+
+                        <span class="composer-hint">
+
+                            <span class="hint-key">
+                                Enter
+                            </span>
+
+                            to send
+
+                            <span class="hint-separator">
+                                •
+                            </span>
+
+                            <span class="hint-key">
+                                Shift + Enter
+                            </span>
+
+                            new line
+
+                        </span>
+
+
+                        <span class="composer-security">
+                            🔒 Your API key stays private
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <p class="disclaimer">
+                    Siksha AI can make mistakes. Always verify important
+                    information with your textbook or teacher.
+                </p>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- =====================================================
+         SIDEBAR MOBILE OVERLAY
+    ====================================================== -->
+
+    <div
+        class="sidebar-overlay"
+        id="sidebarOverlay"
+    ></div>
+
+
+    <!-- =====================================================
+         PREMIUM MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="premiumModal"
+        aria-hidden="true"
+    >
+
+        <div
+            class="premium-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="premiumModalTitle"
+        >
+
+            <button
+                class="modal-close"
+                id="premiumModalClose"
+                type="button"
+                aria-label="Close"
+            >
+                ×
+            </button>
+
+
+            <div class="premium-modal-glow"></div>
+
+
+            <div class="premium-icon">
+                ✦
+            </div>
+
+
+            <div class="premium-label">
+                SIKSHA AI PREMIUM
+            </div>
+
+
+            <h2 id="premiumModalTitle">
+                Unlock deeper learning
+            </h2>
+
+
+            <p>
+                Premium mode gives you deeper explanations,
+                stronger reasoning and more detailed study support.
+            </p>
+
+
+            <div class="premium-features">
+
+                <div class="premium-feature">
+
+                    <span>
+                        ✓
+                    </span>
+
+                    <div>
+                        <strong>
+                            Deeper explanations
+                        </strong>
+
+                        <small>
+                            Understand the "why", not just the answer.
+                        </small>
+                    </div>
+
+                </div>
+
+
+                <div class="premium-feature">
+
+                    <span>
+                        ✓
+                    </span>
+
+                    <div>
+                        <strong>
+                            Advanced problem solving
+                        </strong>
+
+                        <small>
+                            Step-by-step reasoning for difficult questions.
+                        </small>
+                    </div>
+
+                </div>
+
+
+                <div class="premium-feature">
+
+                    <span>
+                        ✓
+                    </span>
+
+                    <div>
+                        <strong>
+                            Exam-focused guidance
+                        </strong>
+
+                        <small>
+                            Tips, mistakes and revision support.
+                        </small>
+                    </div>
+
+                </div>
+
+
+                <div class="premium-feature">
+
+                    <span>
+                        ✓
+                    </span>
+
+                    <div>
+                        <strong>
+                            Premium voice
+                        </strong>
+
+                        <small>
+                            Natural AI voice experience.
+                        </small>
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <button
+                class="premium-activate-button"
+                id="activatePremiumButton"
+                type="button"
+            >
+                Continue with Premium
+            </button>
+
+
+            <button
+                class="premium-cancel-button"
+                id="premiumCancelButton"
+                type="button"
+            >
+                Maybe later
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         DELETE CHAT MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="deleteModal"
+        aria-hidden="true"
+    >
+
+        <div
+            class="delete-modal"
+            role="dialog"
+            aria-modal="true"
+        >
+
+            <div class="delete-icon">
+                🗑
+            </div>
+
+
+            <h2>
+                Delete conversation?
+            </h2>
+
+
+            <p>
+                This conversation will be permanently removed
+                from your local Siksha AI history.
+            </p>
+
+
+            <div class="delete-actions">
+
+                <button
+                    class="modal-secondary-button"
+                    id="deleteCancelButton"
+                    type="button"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    class="modal-danger-button"
+                    id="deleteConfirmButton"
+                    type="button"
+                >
+                    Delete
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         TOAST
+    ====================================================== -->
+
+    <div
+        class="toast"
+        id="toast"
+        role="status"
+        aria-live="polite"
+    >
+
+        <span
+            class="toast-icon"
+            id="toastIcon"
+        >
+            ✓
+        </span>
+
+        <span
+            class="toastMessage"
+            id="toastMessage"
+        >
+            Done
+        </span>
+
+    </div>
+
+
+    <!-- =====================================================
+         SCRIPT
+    ====================================================== -->
+
+    <script
+        src="script.js"
+        defer
+    ></script>
+
+</body>
+</html>
