@@ -1272,17 +1272,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
             const history =
-                chat.messages
-                    .slice(-20)
-                    .map(message => ({
-                        role:
-                            message.role === "assistant"
-                                ? "model"
-                                : message.role,
+    chat.messages
+        .slice(-20)
+        .map(message => ({
+            role:
+                message.role === "assistant" ||
+                message.role === "ai"
+                    ? "assistant"
+                    : "user",
 
-                        content:
-                            message.content
-                    }));
+            text:
+                message.content
+        }));
 
 
             const response =
