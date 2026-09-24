@@ -1,10 +1,18 @@
 // ============================================================
-// SIKSHA AI — FINAL FRONTEND ENGINE
+// SIKSHA AI — FINAL FRONTEND ENGINE V4
 // CHAT + MEMORY + PREMIUM + HINDI + ENGLISH + HINGLISH
 // VOICE INPUT + GEMINI TTS + FILE UPLOAD
 // RECENT CHATS + SEARCH + DELETE
 // MATH RENDERING + TYPING ANIMATION
 // RENDER DEPLOYMENT READY
+//
+// FIXES:
+// - Removed AI logo/avatar from every response
+// - Fixed insertBefore / detached typing indicator crash
+// - Fixed current-message history duplication
+// - Stronger backend connection handling
+// - Better Render cold-start handling
+// - Safer response parsing
 // ============================================================
 
 "use strict";
@@ -15,124 +23,238 @@ document.addEventListener("DOMContentLoaded", () => {
     // CONFIG
     // ========================================================
 
-    const API_BASE = "https://siksha-ai-backend.onrender.com";
+    const API_BASE =
+        "https://siksha-ai-backend.onrender.com";
 
-    const API_URL = `${API_BASE}/api/chat`;
-    const FILE_API_URL = `${API_BASE}/api/solve-file`;
-    const TTS_URL = `${API_BASE}/api/tts`;
+    const API_URL =
+        `${API_BASE}/api/chat`;
 
-    const CHATS_KEY = "siksha_ai_chats_v2";
-    const CURRENT_CHAT_KEY = "siksha_ai_current_chat_v2";
+    const FILE_API_URL =
+        `${API_BASE}/api/solve-file`;
+
+    const TTS_URL =
+        `${API_BASE}/api/tts`;
+
+    const CHATS_KEY =
+        "siksha_ai_chats_v2";
+
+    const CURRENT_CHAT_KEY =
+        "siksha_ai_current_chat_v2";
 
     const MAX_CHATS = 500;
     const MAX_MESSAGES = 80;
+
+    // Render free backend can take some time to wake up.
+    const REQUEST_TIMEOUT = 60000;
 
     // ========================================================
     // DOM
     // ========================================================
 
-    const $ = (id) => document.getElementById(id);
+    const $ = (id) =>
+        document.getElementById(id);
 
-    const messages = $("messages");
-    const welcomeScreen = $("welcomeScreen");
-    const typingIndicator = $("typingIndicator");
-    const messageInput = $("messageInput");
-    const sendButton = $("sendButton");
-    const talkButton = $("talkButton");
-    const newChatButton = $("newChatButton");
-    const clearButton = $("clearButton");
-    const recentChats = $("recentChats");
-    const chatSearchInput = $("chatSearchInput");
-    const chatCount = $("chatCount");
+    const messages =
+        $("messages");
 
-    const normalModeButton = $("normalModeButton");
-    const premiumModeButton = $("premiumModeButton");
-    const modeTitle = $("modeTitle");
-    const modeSubtitle = $("modeSubtitle");
-    const modePill = $("modePill");
+    const welcomeScreen =
+        $("welcomeScreen");
 
-    const fileInput = $("fileInput");
-    const attachButton = $("attachButton");
-    const filePreview = $("filePreview");
-    const filePreviewName = $("filePreviewName");
-    const filePreviewSize = $("filePreviewSize");
-    const removeFileButton = $("removeFileButton");
+    const typingIndicator =
+        $("typingIndicator");
 
-    const premiumModal = $("premiumModal");
-    const closePremiumModal = $("closePremiumModal");
-    const premiumCta = $("premiumCta");
-    const sidebarPremiumButton = $("sidebarPremiumButton");
+    const messageInput =
+        $("messageInput");
 
-    const voicePanel = $("voicePanel");
-    const stopVoiceButton = $("stopVoiceButton");
+    const sendButton =
+        $("sendButton");
 
-    const deleteModal = $("deleteModal");
-    const cancelDelete = $("cancelDelete");
-    const confirmDelete = $("confirmDelete");
+    const talkButton =
+        $("talkButton");
 
-    const toast = $("toast");
-    const toastMessage = $("toastMessage");
+    const newChatButton =
+        $("newChatButton");
 
-    const mobileMenuButton = $("mobileMenuButton");
-    const sidebar = $("sidebar");
-    const mobileSidebarOverlay = $("mobileSidebarOverlay");
+    const clearButton =
+        $("clearButton");
+
+    const recentChats =
+        $("recentChats");
+
+    const chatSearchInput =
+        $("chatSearchInput");
+
+    const chatCount =
+        $("chatCount");
+
+    const normalModeButton =
+        $("normalModeButton");
+
+    const premiumModeButton =
+        $("premiumModeButton");
+
+    const modeTitle =
+        $("modeTitle");
+
+    const modeSubtitle =
+        $("modeSubtitle");
+
+    const modePill =
+        $("modePill");
+
+    const fileInput =
+        $("fileInput");
+
+    const attachButton =
+        $("attachButton");
+
+    const filePreview =
+        $("filePreview");
+
+    const filePreviewName =
+        $("filePreviewName");
+
+    const filePreviewSize =
+        $("filePreviewSize");
+
+    const removeFileButton =
+        $("removeFileButton");
+
+    const premiumModal =
+        $("premiumModal");
+
+    const closePremiumModal =
+        $("closePremiumModal");
+
+    const premiumCta =
+        $("premiumCta");
+
+    const sidebarPremiumButton =
+        $("sidebarPremiumButton");
+
+    const voicePanel =
+        $("voicePanel");
+
+    const stopVoiceButton =
+        $("stopVoiceButton");
+
+    const deleteModal =
+        $("deleteModal");
+
+    const cancelDelete =
+        $("cancelDelete");
+
+    const confirmDelete =
+        $("confirmDelete");
+
+    const toast =
+        $("toast");
+
+    const toastMessage =
+        $("toastMessage");
+
+    const mobileMenuButton =
+        $("mobileMenuButton");
+
+    const sidebar =
+        $("sidebar");
+
+    const mobileSidebarOverlay =
+        $("mobileSidebarOverlay");
+
+    // ========================================================
+    // BASIC SAFETY
+    // ========================================================
+
+    if (!messages) {
+
+        console.error(
+            "Siksha AI: #messages element not found."
+        );
+
+        return;
+    }
 
     // ========================================================
     // STATE
     // ========================================================
 
-    let chats = loadChats();
+    let chats =
+        loadChats();
 
     let currentChatId =
-        localStorage.getItem(CURRENT_CHAT_KEY);
+        localStorage.getItem(
+            CURRENT_CHAT_KEY
+        );
 
-    let currentMode = "normal";
+    let currentMode =
+        "normal";
 
-    let selectedFile = null;
-    let deleteTargetId = null;
+    let selectedFile =
+        null;
 
-    let recognition = null;
-    let isListening = false;
-    let isGenerating = false;
+    let deleteTargetId =
+        null;
 
-    let currentAudio = null;
-    let toastTimer = null;
+    let recognition =
+        null;
+
+    let isListening =
+        false;
+
+    let isGenerating =
+        false;
+
+    let currentAudio =
+        null;
+
+    let toastTimer =
+        null;
 
     // ========================================================
-    // BASIC SAFETY CHECK
-    // ========================================================
-
-    if (!messages) {
-        console.error("Siksha AI: #messages element not found.");
-        return;
-    }
-
-    // ========================================================
-    // CHAT DATA
+    // CHAT ID
     // ========================================================
 
     function generateId() {
+
         return (
             Date.now().toString(36) +
-            Math.random().toString(36).slice(2, 10)
+            Math.random()
+                .toString(36)
+                .slice(2, 10)
         );
     }
+
+    // ========================================================
+    // CREATE CHAT
+    // ========================================================
 
     function createChat() {
 
         const chat = {
-            id: generateId(),
-            title: "New conversation",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            messages: []
+
+            id:
+                generateId(),
+
+            title:
+                "New conversation",
+
+            createdAt:
+                Date.now(),
+
+            updatedAt:
+                Date.now(),
+
+            messages:
+                []
         };
 
         chats.unshift(chat);
 
         trimChats();
 
-        currentChatId = chat.id;
+        currentChatId =
+            chat.id;
 
         saveChats();
 
@@ -144,29 +266,59 @@ document.addEventListener("DOMContentLoaded", () => {
         return chat;
     }
 
+    // ========================================================
+    // GET CURRENT CHAT
+    // ========================================================
+
     function getCurrentChat() {
 
-        let chat = chats.find(
-            item => item.id === currentChatId
-        );
+        let chat =
+            chats.find(
+                item =>
+                    item.id ===
+                    currentChatId
+            );
 
         if (!chat) {
-            chat = createChat();
+
+            chat =
+                createChat();
         }
 
-        if (!Array.isArray(chat.messages)) {
+        if (
+            !Array.isArray(
+                chat.messages
+            )
+        ) {
+
             chat.messages = [];
         }
 
         return chat;
     }
 
+    // ========================================================
+    // TRIM CHATS
+    // ========================================================
+
     function trimChats() {
 
-        if (chats.length > MAX_CHATS) {
-            chats = chats.slice(0, MAX_CHATS);
+        if (
+            chats.length >
+            MAX_CHATS
+        ) {
+
+            chats =
+                chats.slice(
+                    0,
+                    MAX_CHATS
+                );
         }
     }
+
+    // ========================================================
+    // SAVE CHATS
+    // ========================================================
 
     function saveChats() {
 
@@ -186,12 +338,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // ========================================================
+    // LOAD CHATS
+    // ========================================================
+
     function loadChats() {
 
         try {
 
             const saved =
-                localStorage.getItem(CHATS_KEY);
+                localStorage.getItem(
+                    CHATS_KEY
+                );
 
             if (!saved) {
                 return [];
@@ -200,24 +358,38 @@ document.addEventListener("DOMContentLoaded", () => {
             const parsed =
                 JSON.parse(saved);
 
-            if (!Array.isArray(parsed)) {
+            if (
+                !Array.isArray(parsed)
+            ) {
+
                 return [];
             }
 
             return parsed
-                .filter(chat =>
-                    chat &&
-                    typeof chat === "object" &&
-                    chat.id
+                .filter(
+                    chat =>
+                        chat &&
+                        typeof chat ===
+                            "object" &&
+                        chat.id
                 )
-                .map(chat => ({
-                    ...chat,
-                    messages:
-                        Array.isArray(chat.messages)
-                            ? chat.messages
-                            : []
-                }))
-                .slice(0, MAX_CHATS);
+                .map(
+                    chat => ({
+
+                        ...chat,
+
+                        messages:
+                            Array.isArray(
+                                chat.messages
+                            )
+                                ? chat.messages
+                                : []
+                    })
+                )
+                .slice(
+                    0,
+                    MAX_CHATS
+                );
 
         } catch (error) {
 
@@ -241,11 +413,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (
             !currentChatId ||
             !chats.some(
-                chat => chat.id === currentChatId
+                chat =>
+                    chat.id ===
+                    currentChatId
             )
         ) {
 
-            if (chats.length > 0) {
+            if (
+                chats.length >
+                0
+            ) {
 
                 currentChatId =
                     chats[0].id;
@@ -262,6 +439,7 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         renderRecentChats();
+
         renderCurrentChat();
 
         setupSpeechRecognition();
@@ -269,6 +447,16 @@ document.addEventListener("DOMContentLoaded", () => {
         autoResizeTextarea();
 
         setMode("normal");
+
+        console.log(
+            "%cSiksha AI frontend loaded successfully.",
+            "color:#a855f7;font-weight:bold;font-size:14px"
+        );
+
+        console.log(
+            "Backend:",
+            API_BASE
+        );
     }
 
     // ========================================================
@@ -277,16 +465,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderCurrentChat() {
 
-        const chat = getCurrentChat();
+        const chat =
+            getCurrentChat();
 
         /*
-         * IMPORTANT FIX:
+         * Remove only generated message elements.
          *
-         * Never use innerHTML = "" here because that can
-         * detach typingIndicator and make insertBefore()
-         * crash later.
+         * IMPORTANT:
+         * Do NOT use messages.innerHTML = ""
          *
-         * Instead remove only dynamically created messages.
+         * That used to detach typingIndicator
+         * and cause insertBefore() crashes.
          */
 
         const existingMessages =
@@ -295,7 +484,8 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
         existingMessages.forEach(
-            element => element.remove()
+            element =>
+                element.remove()
         );
 
         hideTyping();
@@ -307,9 +497,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (welcomeScreen) {
 
-                messages.appendChild(
-                    welcomeScreen
-                );
+                if (
+                    welcomeScreen.parentNode !==
+                    messages
+                ) {
+
+                    messages.appendChild(
+                        welcomeScreen
+                    );
+                }
 
                 welcomeScreen.style.display =
                     "flex";
@@ -321,6 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (welcomeScreen) {
+
             welcomeScreen.style.display =
                 "none";
         }
@@ -332,12 +529,18 @@ document.addEventListener("DOMContentLoaded", () => {
                     !message ||
                     !message.role
                 ) {
+
                     return;
                 }
 
                 renderMessage(
-                    normalizeRole(message.role),
-                    String(message.content || ""),
+                    normalizeRole(
+                        message.role
+                    ),
+                    String(
+                        message.content ||
+                        ""
+                    ),
                     false
                 );
             }
@@ -348,20 +551,22 @@ document.addEventListener("DOMContentLoaded", () => {
         scrollToBottom(false);
     }
 
+    // ========================================================
+    // ROLE NORMALIZER
+    // ========================================================
+
     function normalizeRole(role) {
 
         if (
             role === "assistant" ||
-            role === "model"
+            role === "model" ||
+            role === "ai"
         ) {
+
             return "ai";
         }
 
-        if (role === "user") {
-            return "user";
-        }
-
-        return "ai";
+        return "user";
     }
 
     // ========================================================
@@ -373,12 +578,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!typingIndicator) {
             return;
         }
-
-        /*
-         * FIX:
-         * insertBefore only works if the reference node
-         * is actually a child of messages.
-         */
 
         if (
             typingIndicator.parentNode !==
@@ -392,14 +591,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function addTypingIndicator() {
+
         ensureTypingIndicator();
+    }
+
+    function showTyping() {
+
+        ensureTypingIndicator();
+
+        if (typingIndicator) {
+
+            typingIndicator.classList.add(
+                "visible"
+            );
+        }
+
+        scrollToBottom();
+    }
+
+    function hideTyping() {
+
+        if (typingIndicator) {
+
+            typingIndicator.classList.remove(
+                "visible"
+            );
+        }
     }
 
     // ========================================================
     // RECENT CHATS
     // ========================================================
 
-    function renderRecentChats(filter = "") {
+    function renderRecentChats(
+        filter = ""
+    ) {
 
         if (!recentChats) {
             return;
@@ -413,38 +639,49 @@ document.addEventListener("DOMContentLoaded", () => {
                 .toLowerCase();
 
         const filtered =
-            chats.filter(chat => {
+            chats.filter(
+                chat => {
 
-                if (!query) {
-                    return true;
+                    if (!query) {
+                        return true;
+                    }
+
+                    const title =
+                        String(
+                            chat.title ||
+                            ""
+                        ).toLowerCase();
+
+                    const preview =
+                        String(
+                            getLastUserMessage(
+                                chat
+                            ) ||
+                            ""
+                        ).toLowerCase();
+
+                    return (
+                        title.includes(query) ||
+                        preview.includes(query)
+                    );
                 }
+            );
 
-                const title =
-                    String(
-                        chat.title || ""
-                    ).toLowerCase();
-
-                const preview =
-                    String(
-                        getLastUserMessage(chat) || ""
-                    ).toLowerCase();
-
-                return (
-                    title.includes(query) ||
-                    preview.includes(query)
-                );
-            });
-
-        if (filtered.length === 0) {
+        if (
+            filtered.length === 0
+        ) {
 
             const empty =
-                document.createElement("div");
+                document.createElement(
+                    "div"
+                );
 
             empty.className =
                 "empty-chats";
 
             empty.innerHTML = `
                 <div class="empty-chat-icon">✦</div>
+
                 <p>
                     ${
                         query
@@ -452,6 +689,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             : "No conversations yet"
                     }
                 </p>
+
                 <span>
                     ${
                         query
@@ -461,126 +699,154 @@ document.addEventListener("DOMContentLoaded", () => {
                 </span>
             `;
 
-            recentChats.appendChild(empty);
+            recentChats.appendChild(
+                empty
+            );
 
         } else {
 
-            filtered.forEach(chat => {
+            filtered.forEach(
+                chat => {
 
-                const item =
-                    document.createElement("div");
+                    const item =
+                        document.createElement(
+                            "div"
+                        );
 
-                item.className =
-                    "chat-item recent-chat-item";
+                    item.className =
+                        "chat-item recent-chat-item";
 
-                if (
-                    chat.id === currentChatId
-                ) {
+                    if (
+                        chat.id ===
+                        currentChatId
+                    ) {
 
-                    item.classList.add(
-                        "active"
-                    );
-                }
-
-                const lastMessage =
-                    getLastUserMessage(chat);
-
-                item.innerHTML = `
-                    <div class="chat-item-main recent-chat-main">
-
-                        <div class="chat-item-title recent-chat-title">
-                            ${escapeHTML(
-                                chat.title ||
-                                "New conversation"
-                            )}
-                        </div>
-
-                        <div class="chat-item-time recent-chat-preview">
-                            ${escapeHTML(
-                                lastMessage ||
-                                formatChatDate(
-                                    chat.updatedAt
-                                )
-                            )}
-                        </div>
-
-                    </div>
-
-                    <button
-                        type="button"
-                        class="chat-delete recent-chat-delete"
-                        title="Delete chat"
-                        data-chat-id="${chat.id}">
-                        ×
-                    </button>
-                `;
-
-                item.addEventListener(
-                    "click",
-                    event => {
-
-                        if (
-                            event.target.closest(
-                                ".chat-delete"
-                            )
-                        ) {
-                            return;
-                        }
-
-                        openChat(chat.id);
+                        item.classList.add(
+                            "active"
+                        );
                     }
-                );
 
-                const deleteButton =
-                    item.querySelector(
-                        ".chat-delete"
-                    );
+                    const lastMessage =
+                        getLastUserMessage(
+                            chat
+                        );
 
-                if (deleteButton) {
+                    item.innerHTML = `
+                        <div class="chat-item-main recent-chat-main">
 
-                    deleteButton.addEventListener(
+                            <div class="chat-item-title recent-chat-title">
+                                ${escapeHTML(
+                                    chat.title ||
+                                    "New conversation"
+                                )}
+                            </div>
+
+                            <div class="chat-item-time recent-chat-preview">
+                                ${escapeHTML(
+                                    lastMessage ||
+                                    formatChatDate(
+                                        chat.updatedAt
+                                    )
+                                )}
+                            </div>
+
+                        </div>
+
+                        <button
+                            type="button"
+                            class="chat-delete recent-chat-delete"
+                            title="Delete chat"
+                            data-chat-id="${escapeHTML(
+                                chat.id
+                            )}">
+                            ×
+                        </button>
+                    `;
+
+                    item.addEventListener(
                         "click",
                         event => {
 
-                            event.preventDefault();
-                            event.stopPropagation();
+                            if (
+                                event.target.closest(
+                                    ".chat-delete"
+                                )
+                            ) {
 
-                            openDeleteModal(
+                                return;
+                            }
+
+                            openChat(
                                 chat.id
                             );
                         }
                     );
-                }
 
-                recentChats.appendChild(item);
-            });
+                    const deleteButton =
+                        item.querySelector(
+                            ".chat-delete"
+                        );
+
+                    if (deleteButton) {
+
+                        deleteButton.addEventListener(
+                            "click",
+                            event => {
+
+                                event.preventDefault();
+
+                                event.stopPropagation();
+
+                                openDeleteModal(
+                                    chat.id
+                                );
+                            }
+                        );
+                    }
+
+                    recentChats.appendChild(
+                        item
+                    );
+                }
+            );
         }
 
         if (chatCount) {
 
             chatCount.textContent =
-                String(chats.length);
+                String(
+                    chats.length
+                );
         }
     }
+
+    // ========================================================
+    // OPEN CHAT
+    // ========================================================
 
     function openChat(id) {
 
         if (
             !chats.some(
-                chat => chat.id === id
+                chat =>
+                    chat.id === id
             )
         ) {
+
             return;
         }
 
         if (isGenerating) {
+
             showToast(
                 "Please wait for the current response"
             );
+
             return;
         }
 
-        currentChatId = id;
+        currentChatId =
+            id;
 
         localStorage.setItem(
             CURRENT_CHAT_KEY,
@@ -588,7 +854,8 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         renderRecentChats(
-            chatSearchInput?.value || ""
+            chatSearchInput?.value ||
+            ""
         );
 
         renderCurrentChat();
@@ -596,28 +863,44 @@ document.addEventListener("DOMContentLoaded", () => {
         closeMobileSidebar();
     }
 
-    function getLastUserMessage(chat) {
+    // ========================================================
+    // LAST USER MESSAGE
+    // ========================================================
+
+    function getLastUserMessage(
+        chat
+    ) {
 
         if (
             !chat ||
-            !Array.isArray(chat.messages)
+            !Array.isArray(
+                chat.messages
+            )
         ) {
+
             return "";
         }
 
         for (
-            let i = chat.messages.length - 1;
+            let i =
+                chat.messages.length - 1;
             i >= 0;
             i--
         ) {
 
+            const message =
+                chat.messages[i];
+
             if (
-                chat.messages[i] &&
-                chat.messages[i].role === "user"
+                message &&
+                normalizeRole(
+                    message.role
+                ) === "user"
             ) {
 
                 return String(
-                    chat.messages[i].content || ""
+                    message.content ||
+                    ""
                 );
             }
         }
@@ -625,7 +908,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return "";
     }
 
-    function formatChatDate(timestamp) {
+    // ========================================================
+    // CHAT DATE
+    // ========================================================
+
+    function formatChatDate(
+        timestamp
+    ) {
 
         if (!timestamp) {
             return "";
@@ -639,6 +928,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 date.getTime()
             )
         ) {
+
             return "";
         }
 
@@ -654,8 +944,11 @@ document.addEventListener("DOMContentLoaded", () => {
             return date.toLocaleTimeString(
                 [],
                 {
-                    hour: "2-digit",
-                    minute: "2-digit"
+                    hour:
+                        "2-digit",
+
+                    minute:
+                        "2-digit"
                 }
             );
         }
@@ -663,8 +956,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return date.toLocaleDateString(
             [],
             {
-                day: "numeric",
-                month: "short"
+                day:
+                    "numeric",
+
+                month:
+                    "short"
             }
         );
     }
@@ -680,9 +976,11 @@ document.addEventListener("DOMContentLoaded", () => {
             event.preventDefault();
 
             if (isGenerating) {
+
                 showToast(
                     "Please wait for the current response"
                 );
+
                 return;
             }
 
@@ -743,7 +1041,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function openDeleteModal(id) {
 
-        deleteTargetId = id;
+        deleteTargetId =
+            id;
 
         if (deleteModal) {
 
@@ -755,7 +1054,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function closeDeleteModal() {
 
-        deleteTargetId = null;
+        deleteTargetId =
+            null;
 
         deleteModal?.classList.remove(
             "visible"
@@ -789,6 +1089,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const deletingId =
                 deleteTargetId;
 
+            const wasCurrentChat =
+                currentChatId ===
+                deletingId;
+
             chats =
                 chats.filter(
                     chat =>
@@ -797,16 +1101,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
 
             /*
-             * If current chat was deleted,
-             * select another chat or create one.
+             * If deleting the current/last chat,
+             * create a replacement safely.
              */
 
-            if (
-                currentChatId ===
-                deletingId
-            ) {
+            if (wasCurrentChat) {
 
-                if (chats.length > 0) {
+                if (
+                    chats.length >
+                    0
+                ) {
 
                     currentChatId =
                         chats[0].id;
@@ -837,7 +1141,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     // ========================================================
-    // SEARCH CHATS
+    // SEARCH
     // ========================================================
 
     chatSearchInput?.addEventListener(
@@ -864,7 +1168,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            setMode("normal");
+            setMode(
+                "normal"
+            );
         }
     );
 
@@ -878,7 +1184,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            setMode("premium");
+            setMode(
+                "premium"
+            );
         }
     );
 
@@ -889,7 +1197,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 ? "premium"
                 : "normal";
 
-        if (currentMode === "premium") {
+        if (
+            currentMode ===
+            "premium"
+        ) {
 
             document.body.classList.add(
                 "premium-active"
@@ -904,11 +1215,13 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             if (modeTitle) {
+
                 modeTitle.textContent =
                     "Siksha AI Premium";
             }
 
             if (modeSubtitle) {
+
                 modeSubtitle.textContent =
                     "Enhanced AI learning experience";
             }
@@ -938,11 +1251,13 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             if (modeTitle) {
+
                 modeTitle.textContent =
                     "Siksha AI";
             }
 
             if (modeSubtitle) {
+
                 modeSubtitle.textContent =
                     "Your intelligent learning assistant";
             }
@@ -1013,7 +1328,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "visible"
             );
 
-            setMode("premium");
+            setMode(
+                "premium"
+            );
 
             showToast(
                 "Premium mode enabled"
@@ -1058,7 +1375,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     // ========================================================
-    // SEND
+    // SEND BUTTON
     // ========================================================
 
     sendButton?.addEventListener(
@@ -1071,12 +1388,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     );
 
+    // ========================================================
+    // ENTER TO SEND
+    // ========================================================
+
     messageInput?.addEventListener(
         "keydown",
         event => {
 
             if (
-                event.key === "Enter" &&
+                event.key ===
+                    "Enter" &&
                 !event.shiftKey
             ) {
 
@@ -1087,6 +1409,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     );
 
+    // ========================================================
+    // SEND MESSAGE
+    // ========================================================
+
     async function sendMessage() {
 
         if (isGenerating) {
@@ -1094,7 +1420,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const text =
-            messageInput?.value.trim() || "";
+            messageInput?.value.trim() ||
+            "";
 
         if (
             !text &&
@@ -1110,10 +1437,8 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const chat =
-            getCurrentChat();
-
         if (welcomeScreen) {
+
             welcomeScreen.style.display =
                 "none";
         }
@@ -1128,6 +1453,10 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        /*
+         * Save/render the user's message first.
+         */
+
         addMessage(
             "user",
             text
@@ -1135,7 +1464,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (messageInput) {
 
-            messageInput.value = "";
+            messageInput.value =
+                "";
 
             autoResizeTextarea();
         }
@@ -1153,9 +1483,17 @@ document.addEventListener("DOMContentLoaded", () => {
         save = true
     ) {
 
+        const normalizedRole =
+            normalizeRole(role);
+
+        const cleanContent =
+            String(
+                content || ""
+            );
+
         renderMessage(
-            normalizeRole(role),
-            String(content || ""),
+            normalizedRole,
+            cleanContent,
             true
         );
 
@@ -1167,10 +1505,13 @@ document.addEventListener("DOMContentLoaded", () => {
             getCurrentChat();
 
         chat.messages.push({
+
             role:
-                normalizeRole(role),
+                normalizedRole,
+
             content:
-                String(content || ""),
+                cleanContent,
+
             timestamp:
                 Date.now()
         });
@@ -1187,13 +1528,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (
-            normalizeRole(role) === "user" &&
-            chat.title === "New conversation"
+            normalizedRole ===
+                "user" &&
+            chat.title ===
+                "New conversation"
         ) {
 
             chat.title =
                 createChatTitle(
-                    content
+                    cleanContent
                 );
         }
 
@@ -1203,28 +1546,46 @@ document.addEventListener("DOMContentLoaded", () => {
         saveChats();
 
         renderRecentChats(
-            chatSearchInput?.value || ""
+            chatSearchInput?.value ||
+            ""
         );
     }
 
-    function createChatTitle(text) {
+    // ========================================================
+    // CHAT TITLE
+    // ========================================================
+
+    function createChatTitle(
+        text
+    ) {
 
         const cleaned =
             String(text || "")
-                .replace(/\s+/g, " ")
+                .replace(
+                    /\s+/g,
+                    " "
+                )
                 .trim();
 
         if (!cleaned) {
+
             return "New conversation";
         }
 
-        if (cleaned.length <= 35) {
+        if (
+            cleaned.length <=
+            35
+        ) {
+
             return cleaned;
         }
 
         return (
             cleaned
-                .slice(0, 35)
+                .slice(
+                    0,
+                    35
+                )
                 .trim() +
             "..."
         );
@@ -1241,7 +1602,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ) {
 
         const wrapper =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         wrapper.className =
             `message ${role}`;
@@ -1253,41 +1616,45 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const contentBox =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         contentBox.className =
             "message-content";
 
-        if (role === "ai") {
-
-            const avatar =
-                document.createElement("div");
-
-            avatar.className =
-                "ai-avatar";
-
-            avatar.innerHTML = `
-                <img
-                    src="assets/logo.png"
-                    alt="Siksha AI">
-            `;
-
-            wrapper.appendChild(
-                avatar
-            );
-        }
+        /*
+         * IMPORTANT:
+         *
+         * NO AI LOGO HERE.
+         *
+         * The old version created:
+         *
+         * <img src="assets/logo.png">
+         *
+         * for every AI answer.
+         *
+         * That is the reason the large logo
+         * was appearing in replies.
+         */
 
         const bubble =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         bubble.className =
             "message-bubble";
 
-        if (role === "ai") {
+        if (
+            role === "ai"
+        ) {
 
             bubble.innerHTML = `
                 <div class="ai-response">
-                    ${formatAIResponse(content)}
+                    ${formatAIResponse(
+                        content
+                    )}
                 </div>
             `;
 
@@ -1302,7 +1669,9 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         const meta =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         meta.className =
             "message-meta";
@@ -1321,14 +1690,11 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         /*
-         * CRITICAL FIX
+         * SAFE INSERT
          *
-         * Never blindly use:
-         *
-         * messages.insertBefore(wrapper, typingIndicator)
-         *
-         * because typingIndicator may not currently be
-         * attached to messages.
+         * Always ensure typingIndicator
+         * is attached before using it
+         * as an insertion reference.
          */
 
         ensureTypingIndicator();
@@ -1336,7 +1702,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (
             typingIndicator &&
             typingIndicator.parentNode ===
-            messages
+                messages
         ) {
 
             messages.insertBefore(
@@ -1349,6 +1715,8 @@ document.addEventListener("DOMContentLoaded", () => {
             messages.appendChild(
                 wrapper
             );
+
+            ensureTypingIndicator();
         }
 
         scrollToBottom(
@@ -1360,7 +1728,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // AI REQUEST
     // ========================================================
 
-    async function askAI(userText) {
+    async function askAI(
+        userText
+    ) {
 
         setGenerating(true);
 
@@ -1372,40 +1742,67 @@ document.addEventListener("DOMContentLoaded", () => {
                 getCurrentChat();
 
             /*
-             * Backend expects:
-             * user -> user
-             * assistant -> model
+             * IMPORTANT FIX:
+             *
+             * The current user message has already
+             * been stored in chat.messages.
+             *
+             * Backend also receives it separately
+             * as "message".
+             *
+             * Therefore we EXCLUDE the latest
+             * user message from history.
              */
 
-            const history =
+            const previousMessages =
                 chat.messages
-                    .slice(-20)
-                    .map(message => {
+                    .slice(
+                        0,
+                        -1
+                    )
+                    .slice(
+                        -20
+                    );
+
+            const history =
+                previousMessages.map(
+                    message => {
+
+                        const originalRole =
+                            message.role;
 
                         const role =
-                            message.role ===
-                            "assistant"
+                            (
+                                originalRole ===
+                                    "ai" ||
+                                originalRole ===
+                                    "assistant" ||
+                                originalRole ===
+                                    "model"
+                            )
                                 ? "model"
-                                : message.role;
+                                : "user";
 
                         return {
+
                             role:
-                                role === "model"
-                                    ? "model"
-                                    : "user",
+                                role,
+
                             content:
                                 String(
                                     message.content ||
                                     ""
                                 )
                         };
-                    });
+                    }
+                );
 
             const response =
-                await fetch(
+                await fetchWithTimeout(
                     API_URL,
                     {
-                        method: "POST",
+                        method:
+                            "POST",
 
                         headers: {
                             "Content-Type":
@@ -1414,15 +1811,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         body:
                             JSON.stringify({
+
                                 message:
                                     userText,
 
                                 mode:
                                     currentMode,
 
-                                history
+                                history:
+                                    history
                             })
-                    }
+                    },
+                    REQUEST_TIMEOUT
                 );
 
             const data =
@@ -1435,14 +1835,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!response.ok) {
 
                 throw new Error(
-                    data.error ||
-                    data.message ||
-                    "AI request failed"
+                    getBackendError(
+                        data,
+                        response.status
+                    )
                 );
             }
 
             const answer =
-                extractAnswer(data);
+                extractAnswer(
+                    data
+                );
 
             if (!answer) {
 
@@ -1461,7 +1864,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "premium"
             ) {
 
-                speakAI(answer);
+                speakAI(
+                    answer
+                );
             }
 
         } catch (error) {
@@ -1473,11 +1878,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
+            const errorMessage =
+                friendlyConnectionError(
+                    error
+                );
+
             addMessage(
                 "ai",
                 `⚠️ **Siksha AI connection error**
 
-${error.message}
+${errorMessage}
 
 Please try again in a few seconds.`
             );
@@ -1488,8 +1898,162 @@ Please try again in a few seconds.`
 
         } finally {
 
-            setGenerating(false);
+            setGenerating(
+                false
+            );
         }
+    }
+
+    // ========================================================
+    // FETCH WITH TIMEOUT
+    // ========================================================
+
+    async function fetchWithTimeout(
+        url,
+        options = {},
+        timeout =
+            REQUEST_TIMEOUT
+    ) {
+
+        const controller =
+            new AbortController();
+
+        const timeoutId =
+            setTimeout(
+                () => {
+                    controller.abort();
+                },
+                timeout
+            );
+
+        try {
+
+            return await fetch(
+                url,
+                {
+                    ...options,
+                    signal:
+                        controller.signal
+                }
+            );
+
+        } finally {
+
+            clearTimeout(
+                timeoutId
+            );
+        }
+    }
+
+    // ========================================================
+    // BACKEND ERROR
+    // ========================================================
+
+    function getBackendError(
+        data,
+        status
+    ) {
+
+        const raw =
+            extractAnswer(
+                data
+            ) ||
+            (
+                data &&
+                data.error
+                    ? data.error
+                    : ""
+            );
+
+        if (raw) {
+            return String(raw);
+        }
+
+        if (
+            status === 404
+        ) {
+
+            return (
+                "The requested Siksha AI endpoint was not found."
+            );
+        }
+
+        if (
+            status >= 500
+        ) {
+
+            return (
+                "The Siksha AI server is temporarily unavailable."
+            );
+        }
+
+        return (
+            `The server returned an error (${status}).`
+        );
+    }
+
+    // ========================================================
+    // FRIENDLY CONNECTION ERROR
+    // ========================================================
+
+    function friendlyConnectionError(
+        error
+    ) {
+
+        if (
+            !navigator.onLine
+        ) {
+
+            return (
+                "You appear to be offline. Please check your internet connection."
+            );
+        }
+
+        if (
+            error &&
+            error.name ===
+                "AbortError"
+        ) {
+
+            return (
+                "The Siksha AI server is taking longer than usual to wake up. Please try again."
+            );
+        }
+
+        const message =
+            String(
+                error?.message ||
+                ""
+            );
+
+        if (
+            message.toLowerCase()
+                .includes(
+                    "failed to fetch"
+                )
+        ) {
+
+            return (
+                "The frontend could not reach the Siksha AI server. The server may be waking up or temporarily unavailable."
+            );
+        }
+
+        if (
+            message.toLowerCase()
+                .includes(
+                    "networkerror"
+                )
+        ) {
+
+            return (
+                "A network error occurred while contacting the Siksha AI server."
+            );
+        }
+
+        return (
+            message ||
+            "Siksha AI could not process your request right now."
+        );
     }
 
     // ========================================================
@@ -1511,7 +2075,17 @@ Please try again in a few seconds.`
             )
         ) {
 
-            return await response.json();
+            try {
+
+                return await response.json();
+
+            } catch {
+
+                return {
+                    error:
+                        "The server returned invalid JSON."
+                };
+            }
         }
 
         const text =
@@ -1519,69 +2093,66 @@ Please try again in a few seconds.`
 
         try {
 
-            return JSON.parse(text);
+            return JSON.parse(
+                text
+            );
 
         } catch {
 
             return {
-                text
+                text:
+                    text
             };
         }
     }
 
-    function extractAnswer(data) {
+    // ========================================================
+    // EXTRACT ANSWER
+    // ========================================================
+
+    function extractAnswer(
+        data
+    ) {
 
         if (!data) {
             return "";
         }
 
         if (
-            typeof data === "string"
+            typeof data ===
+            "string"
         ) {
+
             return data;
         }
 
-        return (
+        /*
+         * Keep this broad so the frontend can work
+         * with different backend response formats.
+         */
+
+        const answer =
             data.answer ||
             data.response ||
             data.reply ||
             data.text ||
-            data.message ||
             data.output ||
-            ""
-        );
-    }
+            data.content ||
+            "";
 
-    // ========================================================
-    // TYPING
-    // ========================================================
-
-    function showTyping() {
-
-        ensureTypingIndicator();
-
-        if (typingIndicator) {
-
-            typingIndicator.classList.add(
-                "visible"
-            );
-        }
-
-        scrollToBottom();
-    }
-
-    function hideTyping() {
-
-        typingIndicator?.classList.remove(
-            "visible"
-        );
+        return typeof answer ===
+            "string"
+            ? answer
+            : String(answer || "");
     }
 
     // ========================================================
     // GENERATING STATE
     // ========================================================
 
-    function setGenerating(value) {
+    function setGenerating(
+        value
+    ) {
 
         isGenerating =
             Boolean(value);
@@ -1589,10 +2160,10 @@ Please try again in a few seconds.`
         if (sendButton) {
 
             sendButton.disabled =
-                Boolean(value);
+                isGenerating;
 
             sendButton.style.opacity =
-                value
+                isGenerating
                     ? "0.55"
                     : "";
         }
@@ -1600,7 +2171,7 @@ Please try again in a few seconds.`
         if (attachButton) {
 
             attachButton.disabled =
-                Boolean(value);
+                isGenerating;
         }
     }
 
@@ -1636,11 +2207,15 @@ Please try again in a few seconds.`
             selectedFile =
                 file;
 
-            showFilePreview(file);
+            showFilePreview(
+                file
+            );
         }
     );
 
-    function showFilePreview(file) {
+    function showFilePreview(
+        file
+    ) {
 
         if (filePreviewName) {
 
@@ -1673,10 +2248,13 @@ Please try again in a few seconds.`
 
     function removeSelectedFile() {
 
-        selectedFile = null;
+        selectedFile =
+            null;
 
         if (fileInput) {
-            fileInput.value = "";
+
+            fileInput.value =
+                "";
         }
 
         filePreview?.classList.remove(
@@ -1684,9 +2262,14 @@ Please try again in a few seconds.`
         );
     }
 
-    function formatFileSize(bytes) {
+    function formatFileSize(
+        bytes
+    ) {
 
-        if (bytes < 1024) {
+        if (
+            bytes < 1024
+        ) {
+
             return `${bytes} B`;
         }
 
@@ -1706,14 +2289,23 @@ Please try again in a few seconds.`
         ).toFixed(1)} MB`;
     }
 
+    // ========================================================
+    // SOLVE FILE
+    // ========================================================
+
     async function solveFile(
         question,
         file
     ) {
 
-        setGenerating(true);
+        setGenerating(
+            true
+        );
 
         showTyping();
+
+        const fileName =
+            file.name;
 
         try {
 
@@ -1736,18 +2328,19 @@ Please try again in a few seconds.`
                 currentMode
             );
 
-            const fileName =
-                file.name;
-
             removeSelectedFile();
 
             const response =
-                await fetch(
+                await fetchWithTimeout(
                     FILE_API_URL,
                     {
-                        method: "POST",
-                        body: formData
-                    }
+                        method:
+                            "POST",
+
+                        body:
+                            formData
+                    },
+                    REQUEST_TIMEOUT
                 );
 
             const data =
@@ -1760,14 +2353,17 @@ Please try again in a few seconds.`
             if (!response.ok) {
 
                 throw new Error(
-                    data.error ||
-                    data.message ||
-                    "File processing failed"
+                    getBackendError(
+                        data,
+                        response.status
+                    )
                 );
             }
 
             const answer =
-                extractAnswer(data);
+                extractAnswer(
+                    data
+                );
 
             if (!answer) {
 
@@ -1793,7 +2389,9 @@ Please try again in a few seconds.`
                 "premium"
             ) {
 
-                speakAI(answer);
+                speakAI(
+                    answer
+                );
             }
 
         } catch (error) {
@@ -1809,7 +2407,9 @@ Please try again in a few seconds.`
                 "ai",
                 `⚠️ **File processing failed**
 
-${error.message}`
+${friendlyConnectionError(
+    error
+)}`
             );
 
             showToast(
@@ -1818,7 +2418,9 @@ ${error.message}`
 
         } finally {
 
-            setGenerating(false);
+            setGenerating(
+                false
+            );
         }
     }
 
@@ -1832,7 +2434,9 @@ ${error.message}`
             window.SpeechRecognition ||
             window.webkitSpeechRecognition;
 
-        if (!SpeechRecognition) {
+        if (
+            !SpeechRecognition
+        ) {
 
             console.warn(
                 "Speech Recognition is not supported."
@@ -1877,8 +2481,10 @@ ${error.message}`
                 for (
                     let i =
                         event.resultIndex;
+
                     i <
                     event.results.length;
+
                     i++
                 ) {
 
@@ -1957,6 +2563,7 @@ ${error.message}`
             } catch (error) {
 
                 console.error(
+                    "Could not start recognition:",
                     error
                 );
             }
@@ -1978,7 +2585,9 @@ ${error.message}`
         if (recognition) {
 
             try {
+
                 recognition.stop();
+
             } catch {}
         }
 
@@ -1998,7 +2607,9 @@ ${error.message}`
     // GEMINI TTS
     // ========================================================
 
-    async function speakAI(text) {
+    async function speakAI(
+        text
+    ) {
 
         try {
 
@@ -2014,10 +2625,11 @@ ${error.message}`
             }
 
             const response =
-                await fetch(
+                await fetchWithTimeout(
                     TTS_URL,
                     {
-                        method: "POST",
+                        method:
+                            "POST",
 
                         headers: {
                             "Content-Type":
@@ -2026,13 +2638,15 @@ ${error.message}`
 
                         body:
                             JSON.stringify({
+
                                 text:
                                     cleanText,
 
                                 mode:
                                     currentMode
                             })
-                    }
+                    },
+                    REQUEST_TIMEOUT
                 );
 
             if (!response.ok) {
@@ -2056,23 +2670,9 @@ ${error.message}`
                 const blob =
                     await response.blob();
 
-                const url =
-                    URL.createObjectURL(
-                        blob
-                    );
-
-                currentAudio =
-                    new Audio(url);
-
-                currentAudio.onended =
-                    () => {
-
-                        URL.revokeObjectURL(
-                            url
-                        );
-                    };
-
-                await currentAudio.play();
+                playAudioBlob(
+                    blob
+                );
 
                 return;
             }
@@ -2095,25 +2695,16 @@ ${error.message}`
                     "audio/wav"
                 );
 
-            const url =
-                URL.createObjectURL(
-                    blob
-                );
-
-            currentAudio =
-                new Audio(url);
-
-            currentAudio.onended =
-                () => {
-
-                    URL.revokeObjectURL(
-                        url
-                    );
-                };
-
-            await currentAudio.play();
+            playAudioBlob(
+                blob
+            );
 
         } catch (error) {
+
+            /*
+             * TTS failure should NEVER
+             * break the normal AI response.
+             */
 
             console.warn(
                 "TTS unavailable:",
@@ -2121,6 +2712,61 @@ ${error.message}`
             );
         }
     }
+
+    // ========================================================
+    // PLAY AUDIO
+    // ========================================================
+
+    function playAudioBlob(
+        blob
+    ) {
+
+        const url =
+            URL.createObjectURL(
+                blob
+            );
+
+        currentAudio =
+            new Audio(url);
+
+        currentAudio.onended =
+            () => {
+
+                URL.revokeObjectURL(
+                    url
+                );
+
+                currentAudio =
+                    null;
+            };
+
+        currentAudio.onerror =
+            () => {
+
+                URL.revokeObjectURL(
+                    url
+                );
+
+                currentAudio =
+                    null;
+            };
+
+        currentAudio
+            .play()
+            .catch(
+                error => {
+
+                    console.warn(
+                        "Browser blocked audio playback:",
+                        error
+                    );
+                }
+            );
+    }
+
+    // ========================================================
+    // STOP AUDIO
+    // ========================================================
 
     function stopCurrentAudio() {
 
@@ -2141,6 +2787,10 @@ ${error.message}`
             null;
     }
 
+    // ========================================================
+    // BASE64 TO BLOB
+    // ========================================================
+
     function base64ToBlob(
         base64,
         mimeType
@@ -2149,22 +2799,27 @@ ${error.message}`
         const byteCharacters =
             atob(base64);
 
-        const byteArrays = [];
+        const byteArrays =
+            [];
 
         const chunkSize =
             1024;
 
         for (
             let offset = 0;
+
             offset <
             byteCharacters.length;
-            offset += chunkSize
+
+            offset +=
+                chunkSize
         ) {
 
             const slice =
                 byteCharacters.slice(
                     offset,
-                    offset + chunkSize
+                    offset +
+                        chunkSize
                 );
 
             const byteNumbers =
@@ -2174,12 +2829,17 @@ ${error.message}`
 
             for (
                 let i = 0;
-                i < slice.length;
+
+                i <
+                slice.length;
+
                 i++
             ) {
 
                 byteNumbers[i] =
-                    slice.charCodeAt(i);
+                    slice.charCodeAt(
+                        i
+                    );
             }
 
             byteArrays.push(
@@ -2198,9 +2858,17 @@ ${error.message}`
         );
     }
 
-    function stripMarkdownForSpeech(text) {
+    // ========================================================
+    // SPEECH CLEANER
+    // ========================================================
 
-        return String(text || "")
+    function stripMarkdownForSpeech(
+        text
+    ) {
+
+        return String(
+            text || ""
+        )
             .replace(
                 /```[\s\S]*?```/g,
                 ""
@@ -2214,6 +2882,26 @@ ${error.message}`
                 " mathematical expression "
             )
             .replace(
+                /\\frac\{([^{}]*)\}\{([^{}]*)\}/g,
+                "$1 divided by $2"
+            )
+            .replace(
+                /\\sqrt\{([^{}]*)\}/g,
+                "square root of $1"
+            )
+            .replace(
+                /\\times/g,
+                " times "
+            )
+            .replace(
+                /\\cdot/g,
+                " times "
+            )
+            .replace(
+                /\\pm/g,
+                " plus or minus "
+            )
+            .replace(
                 /\s+/g,
                 " "
             )
@@ -2221,10 +2909,12 @@ ${error.message}`
     }
 
     // ========================================================
-    // MATH + MARKDOWN RENDERER
+    // MARKDOWN + MATH
     // ========================================================
 
-    function formatAIResponse(text) {
+    function formatAIResponse(
+        text
+    ) {
 
         if (!text) {
             return "";
@@ -2245,7 +2935,8 @@ ${error.message}`
         // Protect code blocks
         // ----------------------------------------------------
 
-        const protectedBlocks = [];
+        const protectedBlocks =
+            [];
 
         value =
             value.replace(
@@ -2261,7 +2952,7 @@ ${error.message}`
                         )}</code></pre>`
                     );
 
-                    return `@@CODE${index}@@`;
+                    return `SIAI_CODE_${index}_SIAI`;
                 }
             );
 
@@ -2269,7 +2960,8 @@ ${error.message}`
         // Protect display math
         // ----------------------------------------------------
 
-        const protectedMath = [];
+        const protectedMath =
+            [];
 
         value =
             value.replace(
@@ -2285,7 +2977,7 @@ ${error.message}`
                         )
                     );
 
-                    return `@@MATH${index}@@`;
+                    return `SIAI_MATH_${index}_SIAI`;
                 }
             );
 
@@ -2303,9 +2995,13 @@ ${error.message}`
                         )
                     );
 
-                    return `@@MATH${index}@@`;
+                    return `SIAI_MATH_${index}_SIAI`;
                 }
             );
+
+        // ----------------------------------------------------
+        // Inline math
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2321,7 +3017,7 @@ ${error.message}`
                         )
                     );
 
-                    return `@@MATH${index}@@`;
+                    return `SIAI_MATH_${index}_SIAI`;
                 }
             );
 
@@ -2339,7 +3035,7 @@ ${error.message}`
                         )
                     );
 
-                    return `@@MATH${index}@@`;
+                    return `SIAI_MATH_${index}_SIAI`;
                 }
             );
 
@@ -2348,7 +3044,9 @@ ${error.message}`
         // ----------------------------------------------------
 
         value =
-            escapeHTML(value);
+            escapeHTML(
+                value
+            );
 
         // ----------------------------------------------------
         // Headings
@@ -2499,7 +3197,7 @@ ${error.message}`
 
                 value =
                     value.replace(
-                        `@@MATH${index}@@`,
+                        `SIAI_MATH_${index}_SIAI`,
                         html
                     );
             }
@@ -2514,7 +3212,7 @@ ${error.message}`
 
                 value =
                     value.replace(
-                        `@@CODE${index}@@`,
+                        `SIAI_CODE_${index}_SIAI`,
                         html
                     );
             }
@@ -2527,10 +3225,14 @@ ${error.message}`
     // DISPLAY MATH
     // ========================================================
 
-    function renderMath(math) {
+    function renderMath(
+        math
+    ) {
 
         let expression =
-            escapeHTML(math);
+            escapeHTML(
+                math
+            );
 
         expression =
             expression.replace(
@@ -2624,6 +3326,18 @@ ${error.message}`
 
         expression =
             expression.replace(
+                /\\gamma/g,
+                "γ"
+            );
+
+        expression =
+            expression.replace(
+                /\\Delta/g,
+                "Δ"
+            );
+
+        expression =
+            expression.replace(
                 /\^(\d+)/g,
                 "<sup>$1</sup>"
             );
@@ -2675,10 +3389,14 @@ ${error.message}`
     // INLINE MATH
     // ========================================================
 
-    function renderInlineMath(math) {
+    function renderInlineMath(
+        math
+    ) {
 
         let expression =
-            escapeHTML(math);
+            escapeHTML(
+                math
+            );
 
         expression =
             expression.replace(
@@ -2690,6 +3408,12 @@ ${error.message}`
             expression.replace(
                 /\\sqrt\{([^{}]*)\}/g,
                 '<span class="sqrt"><span class="sqrt-symbol">√</span><span class="sqrt-content">$1</span></span>'
+            );
+
+        expression =
+            expression.replace(
+                /\\text\{([^{}]*)\}/g,
+                '<span class="math-text">$1</span>'
             );
 
         expression =
@@ -2706,8 +3430,50 @@ ${error.message}`
 
         expression =
             expression.replace(
+                /\\pm/g,
+                "±"
+            );
+
+        expression =
+            expression.replace(
+                /\\leq/g,
+                "≤"
+            );
+
+        expression =
+            expression.replace(
+                /\\geq/g,
+                "≥"
+            );
+
+        expression =
+            expression.replace(
+                /\\neq/g,
+                "≠"
+            );
+
+        expression =
+            expression.replace(
                 /\\pi/g,
                 "π"
+            );
+
+        expression =
+            expression.replace(
+                /\\theta/g,
+                "θ"
+            );
+
+        expression =
+            expression.replace(
+                /\\alpha/g,
+                "α"
+            );
+
+        expression =
+            expression.replace(
+                /\\beta/g,
+                "β"
             );
 
         expression =
@@ -2734,6 +3500,24 @@ ${error.message}`
                 "<sub>$1</sub>"
             );
 
+        expression =
+            expression.replace(
+                /\\left/g,
+                ""
+            );
+
+        expression =
+            expression.replace(
+                /\\right/g,
+                ""
+            );
+
+        expression =
+            expression.replace(
+                /\\,/g,
+                " "
+            );
+
         return `
             <span class="math-text">
                 ${expression}
@@ -2742,12 +3526,16 @@ ${error.message}`
     }
 
     // ========================================================
-    // SAFE HTML
+    // ESCAPE HTML
     // ========================================================
 
-    function escapeHTML(value) {
+    function escapeHTML(
+        value
+    ) {
 
-        return String(value)
+        return String(
+            value
+        )
             .replace(
                 /&/g,
                 "&amp;"
@@ -2810,16 +3598,24 @@ ${error.message}`
                     return;
                 }
 
-                messages.scrollTo({
+                try {
 
-                    top:
-                        messages.scrollHeight,
+                    messages.scrollTo({
 
-                    behavior:
-                        smooth
-                            ? "smooth"
-                            : "auto"
-                });
+                        top:
+                            messages.scrollHeight,
+
+                        behavior:
+                            smooth
+                                ? "smooth"
+                                : "auto"
+                    });
+
+                } catch {
+
+                    messages.scrollTop =
+                        messages.scrollHeight;
+                }
             }
         );
     }
@@ -2828,7 +3624,9 @@ ${error.message}`
     // TOAST
     // ========================================================
 
-    function showToast(message) {
+    function showToast(
+        message
+    ) {
 
         if (!toast) {
             return;
@@ -2898,7 +3696,7 @@ ${error.message}`
     }
 
     // ========================================================
-    // ESCAPE KEY
+    // ESCAPE
     // ========================================================
 
     document.addEventListener(
@@ -2909,6 +3707,7 @@ ${error.message}`
                 event.key !==
                 "Escape"
             ) {
+
                 return;
             }
 
@@ -2972,6 +3771,10 @@ ${error.message}`
 
     // ========================================================
     // IMAGE FALLBACK
+    //
+    // Kept for other images in the UI.
+    // Since AI message avatar was removed,
+    // this will no longer affect AI responses.
     // ========================================================
 
     document.addEventListener(
@@ -2983,7 +3786,7 @@ ${error.message}`
 
             if (
                 target instanceof
-                HTMLImageElement &&
+                    HTMLImageElement &&
                 target.src.includes(
                     "assets/logo.png"
                 )
@@ -3028,7 +3831,9 @@ ${error.message}`
                 mode === "premium"
             ) {
 
-                setMode(mode);
+                setMode(
+                    mode
+                );
             }
         },
 
@@ -3045,21 +3850,12 @@ ${error.message}`
         send: () => {
 
             return sendMessage();
+        },
+
+        getBackend: () => {
+
+            return API_BASE;
         }
     };
-
-    // ========================================================
-    // FINAL READY MESSAGE
-    // ========================================================
-
-    console.log(
-        "%cSiksha AI frontend loaded successfully.",
-        "color:#a855f7;font-weight:bold;font-size:14px"
-    );
-
-    console.log(
-        "Backend:",
-        API_BASE
-    );
 
 });
