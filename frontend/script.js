@@ -4,6 +4,7 @@
 // VOICE INPUT + GEMINI TTS + FILE UPLOAD
 // RECENT CHATS + SEARCH + DELETE
 // MATH RENDERING + TYPING ANIMATION
+// RENDER DEPLOYMENT READY
 // ============================================================
 
 "use strict";
@@ -26,7 +27,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const MAX_CHATS = 500;
     const MAX_MESSAGES = 80;
 
-
     // ========================================================
     // DOM
     // ========================================================
@@ -36,30 +36,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const messages = $("messages");
     const welcomeScreen = $("welcomeScreen");
     const typingIndicator = $("typingIndicator");
-
     const messageInput = $("messageInput");
     const sendButton = $("sendButton");
     const talkButton = $("talkButton");
-
     const newChatButton = $("newChatButton");
     const clearButton = $("clearButton");
-
     const recentChats = $("recentChats");
-    const emptyChats = $("emptyChats");
-
     const chatSearchInput = $("chatSearchInput");
     const chatCount = $("chatCount");
 
     const normalModeButton = $("normalModeButton");
     const premiumModeButton = $("premiumModeButton");
-
     const modeTitle = $("modeTitle");
     const modeSubtitle = $("modeSubtitle");
     const modePill = $("modePill");
 
     const fileInput = $("fileInput");
     const attachButton = $("attachButton");
-
     const filePreview = $("filePreview");
     const filePreviewName = $("filePreviewName");
     const filePreviewSize = $("filePreviewSize");
@@ -84,57 +77,54 @@ document.addEventListener("DOMContentLoaded", () => {
     const sidebar = $("sidebar");
     const mobileSidebarOverlay = $("mobileSidebarOverlay");
 
-
     // ========================================================
     // STATE
     // ========================================================
 
     let chats = loadChats();
 
-    let currentChatId = localStorage.getItem(CURRENT_CHAT_KEY);
+    let currentChatId =
+        localStorage.getItem(CURRENT_CHAT_KEY);
 
     let currentMode = "normal";
 
     let selectedFile = null;
-
     let deleteTargetId = null;
 
     let recognition = null;
-
     let isListening = false;
-
     let isGenerating = false;
 
     let currentAudio = null;
-
     let toastTimer = null;
 
+    // ========================================================
+    // BASIC SAFETY CHECK
+    // ========================================================
+
+    if (!messages) {
+        console.error("Siksha AI: #messages element not found.");
+        return;
+    }
 
     // ========================================================
     // CHAT DATA
     // ========================================================
 
     function generateId() {
-
         return (
             Date.now().toString(36) +
-            Math.random().toString(36).slice(2, 8)
+            Math.random().toString(36).slice(2, 10)
         );
-
     }
-
 
     function createChat() {
 
         const chat = {
             id: generateId(),
-
             title: "New conversation",
-
             createdAt: Date.now(),
-
             updatedAt: Date.now(),
-
             messages: []
         };
 
@@ -154,7 +144,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return chat;
     }
 
-
     function getCurrentChat() {
 
         let chat = chats.find(
@@ -165,23 +154,19 @@ document.addEventListener("DOMContentLoaded", () => {
             chat = createChat();
         }
 
+        if (!Array.isArray(chat.messages)) {
+            chat.messages = [];
+        }
+
         return chat;
     }
-
 
     function trimChats() {
 
         if (chats.length > MAX_CHATS) {
-
-            chats = chats.slice(
-                0,
-                MAX_CHATS
-            );
-
+            chats = chats.slice(0, MAX_CHATS);
         }
-
     }
-
 
     function saveChats() {
 
@@ -198,11 +183,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 "Could not save chats:",
                 error
             );
-
         }
-
     }
-
 
     function loadChats() {
 
@@ -222,10 +204,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 return [];
             }
 
-            return parsed.slice(
-                0,
-                MAX_CHATS
-            );
+            return parsed
+                .filter(chat =>
+                    chat &&
+                    typeof chat === "object" &&
+                    chat.id
+                )
+                .map(chat => ({
+                    ...chat,
+                    messages:
+                        Array.isArray(chat.messages)
+                            ? chat.messages
+                            : []
+                }))
+                .slice(0, MAX_CHATS);
 
         } catch (error) {
 
@@ -236,9 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             return [];
         }
-
     }
-
 
     // ========================================================
     // INITIALIZE
@@ -246,13 +236,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     initialize();
 
-
     function initialize() {
 
-        if (!currentChatId ||
+        if (
+            !currentChatId ||
             !chats.some(
                 chat => chat.id === currentChatId
-            )) {
+            )
+        ) {
 
             if (chats.length > 0) {
 
@@ -262,9 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
             } else {
 
                 createChat();
-
             }
-
         }
 
         localStorage.setItem(
@@ -273,15 +262,14 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         renderRecentChats();
-
         renderCurrentChat();
 
         setupSpeechRecognition();
 
         autoResizeTextarea();
 
+        setMode("normal");
     }
-
 
     // ========================================================
     // CURRENT CHAT RENDER
@@ -291,73 +279,138 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const chat = getCurrentChat();
 
-        messages.innerHTML = "";
+        /*
+         * IMPORTANT FIX:
+         *
+         * Never use innerHTML = "" here because that can
+         * detach typingIndicator and make insertBefore()
+         * crash later.
+         *
+         * Instead remove only dynamically created messages.
+         */
+
+        const existingMessages =
+            messages.querySelectorAll(
+                ".message"
+            );
+
+        existingMessages.forEach(
+            element => element.remove()
+        );
+
+        hideTyping();
 
         if (
             !chat.messages ||
             chat.messages.length === 0
         ) {
 
-            messages.appendChild(
-                welcomeScreen
-            );
+            if (welcomeScreen) {
 
-            welcomeScreen.style.display = "flex";
+                messages.appendChild(
+                    welcomeScreen
+                );
 
-            addTypingIndicator();
+                welcomeScreen.style.display =
+                    "flex";
+            }
+
+            ensureTypingIndicator();
 
             return;
         }
 
-
-        welcomeScreen.style.display = "none";
+        if (welcomeScreen) {
+            welcomeScreen.style.display =
+                "none";
+        }
 
         chat.messages.forEach(
             message => {
 
+                if (
+                    !message ||
+                    !message.role
+                ) {
+                    return;
+                }
+
                 renderMessage(
-                    message.role,
-                    message.content,
+                    normalizeRole(message.role),
+                    String(message.content || ""),
                     false
                 );
-
             }
         );
 
-        addTypingIndicator();
+        ensureTypingIndicator();
 
         scrollToBottom(false);
-
     }
 
-
-    function addTypingIndicator() {
+    function normalizeRole(role) {
 
         if (
-            typingIndicator &&
-            !messages.contains(typingIndicator)
+            role === "assistant" ||
+            role === "model"
+        ) {
+            return "ai";
+        }
+
+        if (role === "user") {
+            return "user";
+        }
+
+        return "ai";
+    }
+
+    // ========================================================
+    // TYPING INDICATOR
+    // ========================================================
+
+    function ensureTypingIndicator() {
+
+        if (!typingIndicator) {
+            return;
+        }
+
+        /*
+         * FIX:
+         * insertBefore only works if the reference node
+         * is actually a child of messages.
+         */
+
+        if (
+            typingIndicator.parentNode !==
+            messages
         ) {
 
             messages.appendChild(
                 typingIndicator
             );
-
         }
-
     }
 
+    function addTypingIndicator() {
+        ensureTypingIndicator();
+    }
 
     // ========================================================
-    // RECENT CHAT SIDEBAR
+    // RECENT CHATS
     // ========================================================
 
     function renderRecentChats(filter = "") {
 
+        if (!recentChats) {
+            return;
+        }
+
         recentChats.innerHTML = "";
 
         const query =
-            filter.trim().toLowerCase();
-
+            String(filter || "")
+                .trim()
+                .toLowerCase();
 
         const filtered =
             chats.filter(chat => {
@@ -367,8 +420,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 const title =
-                    String(chat.title || "")
-                        .toLowerCase();
+                    String(
+                        chat.title || ""
+                    ).toLowerCase();
 
                 const preview =
                     String(
@@ -379,9 +433,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     title.includes(query) ||
                     preview.includes(query)
                 );
-
             });
-
 
         if (filtered.length === 0) {
 
@@ -393,8 +445,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             empty.innerHTML = `
                 <div class="empty-chat-icon">✦</div>
-                <p>${query ? "No chats found" : "No conversations yet"}</p>
-                <span>${query ? "Try another search" : "Start asking Siksha AI"}</span>
+                <p>
+                    ${
+                        query
+                            ? "No chats found"
+                            : "No conversations yet"
+                    }
+                </p>
+                <span>
+                    ${
+                        query
+                            ? "Try another search"
+                            : "Start asking Siksha AI"
+                    }
+                </span>
             `;
 
             recentChats.appendChild(empty);
@@ -416,16 +480,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     item.classList.add(
                         "active"
                     );
-
                 }
-
 
                 const lastMessage =
                     getLastUserMessage(chat);
 
-
                 item.innerHTML = `
                     <div class="chat-item-main recent-chat-main">
+
                         <div class="chat-item-title recent-chat-title">
                             ${escapeHTML(
                                 chat.title ||
@@ -441,16 +503,17 @@ document.addEventListener("DOMContentLoaded", () => {
                                 )
                             )}
                         </div>
+
                     </div>
 
                     <button
+                        type="button"
                         class="chat-delete recent-chat-delete"
                         title="Delete chat"
                         data-chat-id="${chat.id}">
                         ×
                     </button>
                 `;
-
 
                 item.addEventListener(
                     "click",
@@ -461,51 +524,44 @@ document.addEventListener("DOMContentLoaded", () => {
                                 ".chat-delete"
                             )
                         ) {
-
                             return;
-
                         }
 
                         openChat(chat.id);
-
                     }
                 );
-
 
                 const deleteButton =
                     item.querySelector(
                         ".chat-delete"
                     );
 
+                if (deleteButton) {
 
-                deleteButton.addEventListener(
-                    "click",
-                    event => {
+                    deleteButton.addEventListener(
+                        "click",
+                        event => {
 
-                        event.stopPropagation();
+                            event.preventDefault();
+                            event.stopPropagation();
 
-                        openDeleteModal(
-                            chat.id
-                        );
+                            openDeleteModal(
+                                chat.id
+                            );
+                        }
+                    );
+                }
 
-                    }
-                );
-
-
-                recentChats.appendChild(
-                    item
-                );
-
+                recentChats.appendChild(item);
             });
-
         }
 
+        if (chatCount) {
 
-        chatCount.textContent =
-            String(chats.length);
-
+            chatCount.textContent =
+                String(chats.length);
+        }
     }
-
 
     function openChat(id) {
 
@@ -514,9 +570,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 chat => chat.id === id
             )
         ) {
-
             return;
+        }
 
+        if (isGenerating) {
+            showToast(
+                "Please wait for the current response"
+            );
+            return;
         }
 
         currentChatId = id;
@@ -527,19 +588,20 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         renderRecentChats(
-            chatSearchInput.value
+            chatSearchInput?.value || ""
         );
 
         renderCurrentChat();
 
         closeMobileSidebar();
-
     }
-
 
     function getLastUserMessage(chat) {
 
-        if (!chat.messages) {
+        if (
+            !chat ||
+            !Array.isArray(chat.messages)
+        ) {
             return "";
         }
 
@@ -550,19 +612,18 @@ document.addEventListener("DOMContentLoaded", () => {
         ) {
 
             if (
+                chat.messages[i] &&
                 chat.messages[i].role === "user"
             ) {
 
-                return chat.messages[i].content;
-
+                return String(
+                    chat.messages[i].content || ""
+                );
             }
-
         }
 
         return "";
-
     }
-
 
     function formatChatDate(timestamp) {
 
@@ -572,6 +633,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const date =
             new Date(timestamp);
+
+        if (
+            Number.isNaN(
+                date.getTime()
+            )
+        ) {
+            return "";
+        }
 
         const now =
             new Date();
@@ -589,7 +658,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     minute: "2-digit"
                 }
             );
-
         }
 
         return date.toLocaleDateString(
@@ -599,9 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 month: "short"
             }
         );
-
     }
-
 
     // ========================================================
     // NEW CHAT
@@ -609,9 +675,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     newChatButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             if (isGenerating) {
+                showToast(
+                    "Please wait for the current response"
+                );
                 return;
             }
 
@@ -626,10 +697,8 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             closeMobileSidebar();
-
         }
     );
-
 
     // ========================================================
     // CLEAR CHAT
@@ -637,7 +706,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     clearButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             if (isGenerating) {
                 return;
@@ -663,10 +734,8 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(
                 "Conversation cleared"
             );
-
         }
     );
-
 
     // ========================================================
     // DELETE CHAT
@@ -676,18 +745,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         deleteTargetId = id;
 
-        deleteModal?.classList.add(
-            "visible"
-        );
+        if (deleteModal) {
 
+            deleteModal.classList.add(
+                "visible"
+            );
+        }
     }
-
-
-    cancelDelete?.addEventListener(
-        "click",
-        closeDeleteModal
-    );
-
 
     function closeDeleteModal() {
 
@@ -696,15 +760,29 @@ document.addEventListener("DOMContentLoaded", () => {
         deleteModal?.classList.remove(
             "visible"
         );
-
     }
 
+    cancelDelete?.addEventListener(
+        "click",
+        event => {
+
+            event.preventDefault();
+
+            closeDeleteModal();
+        }
+    );
 
     confirmDelete?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             if (!deleteTargetId) {
+                return;
+            }
+
+            if (isGenerating) {
                 return;
             }
 
@@ -714,12 +792,18 @@ document.addEventListener("DOMContentLoaded", () => {
             chats =
                 chats.filter(
                     chat =>
-                        chat.id !== deletingId
+                        chat.id !==
+                        deletingId
                 );
 
+            /*
+             * If current chat was deleted,
+             * select another chat or create one.
+             */
 
             if (
-                currentChatId === deletingId
+                currentChatId ===
+                deletingId
             ) {
 
                 if (chats.length > 0) {
@@ -730,18 +814,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
 
                     createChat();
-
                 }
-
-                localStorage.setItem(
-                    CURRENT_CHAT_KEY,
-                    currentChatId
-                );
-
             }
 
-
             saveChats();
+
+            localStorage.setItem(
+                CURRENT_CHAT_KEY,
+                currentChatId
+            );
 
             closeDeleteModal();
 
@@ -752,10 +833,8 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(
                 "Conversation deleted"
             );
-
         }
     );
-
 
     // ========================================================
     // SEARCH CHATS
@@ -768,10 +847,8 @@ document.addEventListener("DOMContentLoaded", () => {
             renderRecentChats(
                 chatSearchInput.value
             );
-
         }
     );
-
 
     // ========================================================
     // MODE SWITCH
@@ -779,29 +856,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
     normalModeButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
+
+            if (isGenerating) {
+                return;
+            }
 
             setMode("normal");
-
         }
     );
-
 
     premiumModeButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
+
+            if (isGenerating) {
+                return;
+            }
 
             setMode("premium");
-
         }
     );
 
-
     function setMode(mode) {
 
-        currentMode = mode;
+        currentMode =
+            mode === "premium"
+                ? "premium"
+                : "normal";
 
-        if (mode === "premium") {
+        if (currentMode === "premium") {
 
             document.body.classList.add(
                 "premium-active"
@@ -815,18 +903,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 "active"
             );
 
-            modeTitle.textContent =
-                "Siksha AI Premium";
+            if (modeTitle) {
+                modeTitle.textContent =
+                    "Siksha AI Premium";
+            }
 
-            modeSubtitle.textContent =
-                "Enhanced AI learning experience";
+            if (modeSubtitle) {
+                modeSubtitle.textContent =
+                    "Enhanced AI learning experience";
+            }
 
-            modePill.textContent =
-                "PREMIUM";
+            if (modePill) {
 
-            modePill.classList.add(
-                "premium"
-            );
+                modePill.textContent =
+                    "PREMIUM";
+
+                modePill.classList.add(
+                    "premium"
+                );
+            }
 
         } else {
 
@@ -842,23 +937,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 "active"
             );
 
-            modeTitle.textContent =
-                "Siksha AI";
+            if (modeTitle) {
+                modeTitle.textContent =
+                    "Siksha AI";
+            }
 
-            modeSubtitle.textContent =
-                "Your intelligent learning assistant";
+            if (modeSubtitle) {
+                modeSubtitle.textContent =
+                    "Your intelligent learning assistant";
+            }
 
-            modePill.textContent =
-                "NORMAL";
+            if (modePill) {
 
-            modePill.classList.remove(
-                "premium"
-            );
+                modePill.textContent =
+                    "NORMAL";
 
+                modePill.classList.remove(
+                    "premium"
+                );
+            }
         }
-
     }
-
 
     // ========================================================
     // PREMIUM MODAL
@@ -866,27 +965,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sidebarPremiumButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             premiumModal?.classList.add(
                 "visible"
             );
-
         }
     );
 
-
     closePremiumModal?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             premiumModal?.classList.remove(
                 "visible"
             );
-
         }
     );
-
 
     premiumModal?.addEventListener(
         "click",
@@ -900,16 +999,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 premiumModal.classList.remove(
                     "visible"
                 );
-
             }
-
         }
     );
 
-
     premiumCta?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             premiumModal?.classList.remove(
                 "visible"
@@ -920,10 +1018,8 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(
                 "Premium mode enabled"
             );
-
         }
     );
-
 
     // ========================================================
     // QUICK PROMPTS
@@ -949,16 +1045,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            messageInput.value =
-                prompt;
+            if (messageInput) {
 
-            autoResizeTextarea();
+                messageInput.value =
+                    prompt;
 
-            messageInput.focus();
+                autoResizeTextarea();
 
+                messageInput.focus();
+            }
         }
     );
-
 
     // ========================================================
     // SEND
@@ -966,9 +1063,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sendButton?.addEventListener(
         "click",
-        sendMessage
-    );
+        event => {
 
+            event.preventDefault();
+
+            sendMessage();
+        }
+    );
 
     messageInput?.addEventListener(
         "keydown",
@@ -982,12 +1083,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 event.preventDefault();
 
                 sendMessage();
-
             }
-
         }
     );
-
 
     async function sendMessage() {
 
@@ -996,27 +1094,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const text =
-            messageInput.value.trim();
+            messageInput?.value.trim() || "";
 
-
-        if (!text && !selectedFile) {
+        if (
+            !text &&
+            !selectedFile
+        ) {
 
             showToast(
                 "Type something first"
             );
 
+            messageInput?.focus();
+
             return;
-
         }
-
 
         const chat =
             getCurrentChat();
 
-
-        welcomeScreen.style.display =
-            "none";
-
+        if (welcomeScreen) {
+            welcomeScreen.style.display =
+                "none";
+        }
 
         if (selectedFile) {
 
@@ -1026,25 +1126,22 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             return;
-
         }
-
 
         addMessage(
             "user",
             text
         );
 
+        if (messageInput) {
 
-        messageInput.value = "";
+            messageInput.value = "";
 
-        autoResizeTextarea();
-
+            autoResizeTextarea();
+        }
 
         await askAI(text);
-
     }
-
 
     // ========================================================
     // ADD MESSAGE
@@ -1057,89 +1154,81 @@ document.addEventListener("DOMContentLoaded", () => {
     ) {
 
         renderMessage(
-            role,
-            content,
+            normalizeRole(role),
+            String(content || ""),
             true
         );
 
-
-        if (save) {
-
-            const chat =
-                getCurrentChat();
-
-
-            chat.messages.push({
-                role,
-                content,
-                timestamp: Date.now()
-            });
-
-
-            if (
-                chat.messages.length >
-                MAX_MESSAGES
-            ) {
-
-                chat.messages =
-                    chat.messages.slice(
-                        -MAX_MESSAGES
-                    );
-
-            }
-
-
-            if (
-                role === "user" &&
-                chat.title === "New conversation"
-            ) {
-
-                chat.title =
-                    createChatTitle(
-                        content
-                    );
-
-            }
-
-
-            chat.updatedAt =
-                Date.now();
-
-
-            saveChats();
-
-            renderRecentChats();
-
+        if (!save) {
+            return;
         }
 
-    }
+        const chat =
+            getCurrentChat();
 
+        chat.messages.push({
+            role:
+                normalizeRole(role),
+            content:
+                String(content || ""),
+            timestamp:
+                Date.now()
+        });
+
+        if (
+            chat.messages.length >
+            MAX_MESSAGES
+        ) {
+
+            chat.messages =
+                chat.messages.slice(
+                    -MAX_MESSAGES
+                );
+        }
+
+        if (
+            normalizeRole(role) === "user" &&
+            chat.title === "New conversation"
+        ) {
+
+            chat.title =
+                createChatTitle(
+                    content
+                );
+        }
+
+        chat.updatedAt =
+            Date.now();
+
+        saveChats();
+
+        renderRecentChats(
+            chatSearchInput?.value || ""
+        );
+    }
 
     function createChatTitle(text) {
 
         const cleaned =
-            text
+            String(text || "")
                 .replace(/\s+/g, " ")
                 .trim();
-
 
         if (!cleaned) {
             return "New conversation";
         }
 
-
         if (cleaned.length <= 35) {
             return cleaned;
         }
 
-
         return (
-            cleaned.slice(0, 35).trim() +
+            cleaned
+                .slice(0, 35)
+                .trim() +
             "..."
         );
-
     }
-
 
     // ========================================================
     // RENDER MESSAGE
@@ -1157,19 +1246,17 @@ document.addEventListener("DOMContentLoaded", () => {
         wrapper.className =
             `message ${role}`;
 
-
         if (!animate) {
+
             wrapper.style.animation =
                 "none";
         }
-
 
         const contentBox =
             document.createElement("div");
 
         contentBox.className =
             "message-content";
-
 
         if (role === "ai") {
 
@@ -1188,9 +1275,7 @@ document.addEventListener("DOMContentLoaded", () => {
             wrapper.appendChild(
                 avatar
             );
-
         }
-
 
         const bubble =
             document.createElement("div");
@@ -1198,26 +1283,23 @@ document.addEventListener("DOMContentLoaded", () => {
         bubble.className =
             "message-bubble";
 
-
         if (role === "ai") {
 
-            bubble.innerHTML =
-                `<div class="ai-response">
+            bubble.innerHTML = `
+                <div class="ai-response">
                     ${formatAIResponse(content)}
-                </div>`;
+                </div>
+            `;
 
         } else {
 
             bubble.textContent =
                 content;
-
         }
-
 
         contentBox.appendChild(
             bubble
         );
-
 
         const meta =
             document.createElement("div");
@@ -1230,29 +1312,49 @@ document.addEventListener("DOMContentLoaded", () => {
                 ? "You"
                 : "Siksha AI";
 
-
         contentBox.appendChild(
             meta
         );
-
 
         wrapper.appendChild(
             contentBox
         );
 
+        /*
+         * CRITICAL FIX
+         *
+         * Never blindly use:
+         *
+         * messages.insertBefore(wrapper, typingIndicator)
+         *
+         * because typingIndicator may not currently be
+         * attached to messages.
+         */
 
-        messages.insertBefore(
-            wrapper,
-            typingIndicator
-        );
+        ensureTypingIndicator();
 
+        if (
+            typingIndicator &&
+            typingIndicator.parentNode ===
+            messages
+        ) {
+
+            messages.insertBefore(
+                wrapper,
+                typingIndicator
+            );
+
+        } else {
+
+            messages.appendChild(
+                wrapper
+            );
+        }
 
         scrollToBottom(
             animate
         );
-
     }
-
 
     // ========================================================
     // AI REQUEST
@@ -1264,27 +1366,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
         showTyping();
 
-
         try {
 
             const chat =
                 getCurrentChat();
 
+            /*
+             * Backend expects:
+             * user -> user
+             * assistant -> model
+             */
 
             const history =
-    chat.messages
-        .slice(-20)
-        .map(message => ({
-            role:
-                message.role === "assistant" ||
-                message.role === "ai"
-                    ? "assistant"
-                    : "user",
+                chat.messages
+                    .slice(-20)
+                    .map(message => {
 
-            text:
-                message.content
-        }));
+                        const role =
+                            message.role ===
+                            "assistant"
+                                ? "model"
+                                : message.role;
 
+                        return {
+                            role:
+                                role === "model"
+                                    ? "model"
+                                    : "user",
+                            content:
+                                String(
+                                    message.content ||
+                                    ""
+                                )
+                        };
+                    });
 
             const response =
                 await fetch(
@@ -1297,25 +1412,25 @@ document.addEventListener("DOMContentLoaded", () => {
                                 "application/json"
                         },
 
-                        body: JSON.stringify({
-                            message: userText,
+                        body:
+                            JSON.stringify({
+                                message:
+                                    userText,
 
-                            mode: currentMode,
+                                mode:
+                                    currentMode,
 
-                            history
-                        })
+                                history
+                            })
                     }
                 );
-
 
             const data =
                 await parseResponse(
                     response
                 );
 
-
             hideTyping();
-
 
             if (!response.ok) {
 
@@ -1324,35 +1439,29 @@ document.addEventListener("DOMContentLoaded", () => {
                     data.message ||
                     "AI request failed"
                 );
-
             }
-
 
             const answer =
                 extractAnswer(data);
-
 
             if (!answer) {
 
                 throw new Error(
                     "Siksha AI returned an empty response."
                 );
-
             }
-
 
             addMessage(
                 "ai",
                 answer
             );
 
-
             if (
-                currentMode === "premium"
+                currentMode ===
+                "premium"
             ) {
 
                 speakAI(answer);
-
             }
 
         } catch (error) {
@@ -1366,7 +1475,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             addMessage(
                 "ai",
-                `⚠️ **Siksha AI connection error**\n\n${error.message}\n\nPlease make sure the Siksha AI backend is running.` 
+                `⚠️ **Siksha AI connection error**
+
+${error.message}
+
+Please try again in a few seconds.`
             );
 
             showToast(
@@ -1376,11 +1489,8 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
 
             setGenerating(false);
-
         }
-
     }
-
 
     // ========================================================
     // RESPONSE PARSER
@@ -1395,7 +1505,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 "content-type"
             ) || "";
 
-
         if (
             contentType.includes(
                 "application/json"
@@ -1403,13 +1512,10 @@ document.addEventListener("DOMContentLoaded", () => {
         ) {
 
             return await response.json();
-
         }
-
 
         const text =
             await response.text();
-
 
         try {
 
@@ -1420,11 +1526,8 @@ document.addEventListener("DOMContentLoaded", () => {
             return {
                 text
             };
-
         }
-
     }
-
 
     function extractAnswer(data) {
 
@@ -1438,7 +1541,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return data;
         }
 
-
         return (
             data.answer ||
             data.response ||
@@ -1448,9 +1550,7 @@ document.addEventListener("DOMContentLoaded", () => {
             data.output ||
             ""
         );
-
     }
-
 
     // ========================================================
     // TYPING
@@ -1458,25 +1558,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function showTyping() {
 
-        addTypingIndicator();
+        ensureTypingIndicator();
 
-        typingIndicator.classList.add(
-            "visible"
-        );
+        if (typingIndicator) {
+
+            typingIndicator.classList.add(
+                "visible"
+            );
+        }
 
         scrollToBottom();
-
     }
-
 
     function hideTyping() {
 
-        typingIndicator.classList.remove(
+        typingIndicator?.classList.remove(
             "visible"
         );
-
     }
-
 
     // ========================================================
     // GENERATING STATE
@@ -1484,28 +1583,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function setGenerating(value) {
 
-        isGenerating = value;
+        isGenerating =
+            Boolean(value);
 
-        sendButton.disabled =
-            value;
+        if (sendButton) {
 
-        attachButton.disabled =
-            value;
-
-        if (value) {
+            sendButton.disabled =
+                Boolean(value);
 
             sendButton.style.opacity =
-                "0.55";
-
-        } else {
-
-            sendButton.style.opacity =
-                "";
-
+                value
+                    ? "0.55"
+                    : "";
         }
 
-    }
+        if (attachButton) {
 
+            attachButton.disabled =
+                Boolean(value);
+        }
+    }
 
     // ========================================================
     // FILE UPLOAD
@@ -1513,17 +1610,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     attachButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             if (isGenerating) {
                 return;
             }
 
-            fileInput.click();
-
+            fileInput?.click();
         }
     );
-
 
     fileInput?.addEventListener(
         "change",
@@ -1539,49 +1636,53 @@ document.addEventListener("DOMContentLoaded", () => {
             selectedFile =
                 file;
 
-            showFilePreview(
-                file
-            );
-
+            showFilePreview(file);
         }
     );
 
-
     function showFilePreview(file) {
 
-        filePreviewName.textContent =
-            file.name;
+        if (filePreviewName) {
 
-        filePreviewSize.textContent =
-            formatFileSize(
-                file.size
-            );
+            filePreviewName.textContent =
+                file.name;
+        }
 
-        filePreview.classList.add(
+        if (filePreviewSize) {
+
+            filePreviewSize.textContent =
+                formatFileSize(
+                    file.size
+                );
+        }
+
+        filePreview?.classList.add(
             "visible"
         );
-
     }
-
 
     removeFileButton?.addEventListener(
         "click",
-        removeSelectedFile
-    );
+        event => {
 
+            event.preventDefault();
+
+            removeSelectedFile();
+        }
+    );
 
     function removeSelectedFile() {
 
         selectedFile = null;
 
-        fileInput.value = "";
+        if (fileInput) {
+            fileInput.value = "";
+        }
 
-        filePreview.classList.remove(
+        filePreview?.classList.remove(
             "visible"
         );
-
     }
-
 
     function formatFileSize(bytes) {
 
@@ -1589,20 +1690,21 @@ document.addEventListener("DOMContentLoaded", () => {
             return `${bytes} B`;
         }
 
-        if (bytes < 1024 * 1024) {
+        if (
+            bytes <
+            1024 * 1024
+        ) {
 
             return `${(
                 bytes / 1024
             ).toFixed(1)} KB`;
-
         }
 
         return `${(
-            bytes / (1024 * 1024)
+            bytes /
+            (1024 * 1024)
         ).toFixed(1)} MB`;
-
     }
-
 
     async function solveFile(
         question,
@@ -1612,9 +1714,6 @@ document.addEventListener("DOMContentLoaded", () => {
         setGenerating(true);
 
         showTyping();
-
-        removeSelectedFile();
-
 
         try {
 
@@ -1637,26 +1736,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 currentMode
             );
 
+            const fileName =
+                file.name;
+
+            removeSelectedFile();
 
             const response =
                 await fetch(
                     FILE_API_URL,
                     {
                         method: "POST",
-
                         body: formData
                     }
                 );
-
 
             const data =
                 await parseResponse(
                     response
                 );
 
-
             hideTyping();
-
 
             if (!response.ok) {
 
@@ -1665,43 +1764,36 @@ document.addEventListener("DOMContentLoaded", () => {
                     data.message ||
                     "File processing failed"
                 );
-
             }
-
 
             const answer =
                 extractAnswer(data);
-
 
             if (!answer) {
 
                 throw new Error(
                     "No answer was returned for the file."
                 );
-
             }
-
 
             addMessage(
                 "user",
                 question
-                    ? `${question}\n\n📎 ${file.name}`
-                    : `📎 ${file.name}`
+                    ? `${question}\n\n📎 ${fileName}`
+                    : `📎 ${fileName}`
             );
-
 
             addMessage(
                 "ai",
                 answer
             );
 
-
             if (
-                currentMode === "premium"
+                currentMode ===
+                "premium"
             ) {
 
                 speakAI(answer);
-
             }
 
         } catch (error) {
@@ -1715,7 +1807,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             addMessage(
                 "ai",
-                `⚠️ **File processing failed**\n\n${error.message}`
+                `⚠️ **File processing failed**
+
+${error.message}`
             );
 
             showToast(
@@ -1725,11 +1819,8 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
 
             setGenerating(false);
-
         }
-
     }
-
 
     // ========================================================
     // VOICE INPUT
@@ -1741,7 +1832,6 @@ document.addEventListener("DOMContentLoaded", () => {
             window.SpeechRecognition ||
             window.webkitSpeechRecognition;
 
-
         if (!SpeechRecognition) {
 
             console.warn(
@@ -1749,13 +1839,10 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             return;
-
         }
-
 
         recognition =
             new SpeechRecognition();
-
 
         recognition.continuous =
             false;
@@ -1766,46 +1853,48 @@ document.addEventListener("DOMContentLoaded", () => {
         recognition.lang =
             "en-IN";
 
-
         recognition.onstart =
             () => {
 
-                isListening = true;
+                isListening =
+                    true;
 
-                talkButton.classList.add(
+                talkButton?.classList.add(
                     "listening"
                 );
 
                 voicePanel?.classList.add(
                     "visible"
                 );
-
             };
-
 
         recognition.onresult =
             event => {
 
-                let transcript = "";
+                let transcript =
+                    "";
 
                 for (
-                    let i = event.resultIndex;
-                    i < event.results.length;
+                    let i =
+                        event.resultIndex;
+                    i <
+                    event.results.length;
                     i++
                 ) {
 
                     transcript +=
-                        event.results[i][0].transcript;
-
+                        event.results[i][0]
+                            .transcript;
                 }
 
-                messageInput.value =
-                    transcript;
+                if (messageInput) {
 
-                autoResizeTextarea();
+                    messageInput.value =
+                        transcript;
 
+                    autoResizeTextarea();
+                }
             };
-
 
         recognition.onerror =
             event => {
@@ -1825,34 +1914,32 @@ document.addEventListener("DOMContentLoaded", () => {
                     showToast(
                         "Microphone permission is required"
                     );
-
                 }
-
             };
-
 
         recognition.onend =
             () => {
 
                 stopListening();
-
             };
-
     }
-
 
     talkButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
+
+            if (isGenerating) {
+                return;
+            }
 
             if (isListening) {
 
                 stopListening();
 
                 return;
-
             }
-
 
             if (!recognition) {
 
@@ -1861,9 +1948,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
 
                 return;
-
             }
-
 
             try {
 
@@ -1871,19 +1956,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
             } catch (error) {
 
-                console.error(error);
-
+                console.error(
+                    error
+                );
             }
-
         }
     );
 
-
     stopVoiceButton?.addEventListener(
         "click",
-        stopListening
-    );
+        event => {
 
+            event.preventDefault();
+
+            stopListening();
+        }
+    );
 
     function stopListening() {
 
@@ -1892,10 +1980,10 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 recognition.stop();
             } catch {}
-
         }
 
-        isListening = false;
+        isListening =
+            false;
 
         talkButton?.classList.remove(
             "listening"
@@ -1904,9 +1992,7 @@ document.addEventListener("DOMContentLoaded", () => {
         voicePanel?.classList.remove(
             "visible"
         );
-
     }
-
 
     // ========================================================
     // GEMINI TTS
@@ -1918,17 +2004,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             stopCurrentAudio();
 
-
             const cleanText =
                 stripMarkdownForSpeech(
                     text
                 );
 
-
             if (!cleanText) {
                 return;
             }
-
 
             const response =
                 await fetch(
@@ -1941,29 +2024,28 @@ document.addEventListener("DOMContentLoaded", () => {
                                 "application/json"
                         },
 
-                        body: JSON.stringify({
-                            text: cleanText,
+                        body:
+                            JSON.stringify({
+                                text:
+                                    cleanText,
 
-                            mode: currentMode
-                        })
+                                mode:
+                                    currentMode
+                            })
                     }
                 );
-
 
             if (!response.ok) {
 
                 throw new Error(
                     "TTS request failed"
                 );
-
             }
-
 
             const contentType =
                 response.headers.get(
                     "content-type"
                 ) || "";
-
 
             if (
                 contentType.includes(
@@ -1988,30 +2070,24 @@ document.addEventListener("DOMContentLoaded", () => {
                         URL.revokeObjectURL(
                             url
                         );
-
                     };
 
                 await currentAudio.play();
 
                 return;
-
             }
-
 
             const data =
                 await response.json();
-
 
             const audioData =
                 data.audio ||
                 data.audioContent ||
                 data.data;
 
-
             if (!audioData) {
                 return;
             }
-
 
             const blob =
                 base64ToBlob(
@@ -2019,16 +2095,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     "audio/wav"
                 );
 
-
             const url =
                 URL.createObjectURL(
                     blob
                 );
 
-
             currentAudio =
                 new Audio(url);
-
 
             currentAudio.onended =
                 () => {
@@ -2036,9 +2109,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     URL.revokeObjectURL(
                         url
                     );
-
                 };
-
 
             await currentAudio.play();
 
@@ -2048,11 +2119,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 "TTS unavailable:",
                 error
             );
-
         }
-
     }
-
 
     function stopCurrentAudio() {
 
@@ -2069,10 +2137,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         } catch {}
 
-        currentAudio = null;
-
+        currentAudio =
+            null;
     }
-
 
     function base64ToBlob(
         base64,
@@ -2087,10 +2154,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const chunkSize =
             1024;
 
-
         for (
             let offset = 0;
-            offset < byteCharacters.length;
+            offset <
+            byteCharacters.length;
             offset += chunkSize
         ) {
 
@@ -2100,12 +2167,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     offset + chunkSize
                 );
 
-
             const byteNumbers =
                 new Array(
                     slice.length
                 );
-
 
             for (
                 let i = 0;
@@ -2115,32 +2180,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 byteNumbers[i] =
                     slice.charCodeAt(i);
-
             }
-
 
             byteArrays.push(
                 new Uint8Array(
                     byteNumbers
                 )
             );
-
         }
-
 
         return new Blob(
             byteArrays,
             {
-                type: mimeType
+                type:
+                    mimeType
             }
         );
-
     }
-
 
     function stripMarkdownForSpeech(text) {
 
-        return text
+        return String(text || "")
             .replace(
                 /```[\s\S]*?```/g,
                 ""
@@ -2158,9 +2218,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 " "
             )
             .trim();
-
     }
-
 
     // ========================================================
     // MATH + MARKDOWN RENDERER
@@ -2172,17 +2230,22 @@ document.addEventListener("DOMContentLoaded", () => {
             return "";
         }
 
-
         let value =
             String(text)
-                .replace(/\r\n/g, "\n")
-                .replace(/\r/g, "\n");
+                .replace(
+                    /\r\n/g,
+                    "\n"
+                )
+                .replace(
+                    /\r/g,
+                    "\n"
+                );
 
-
+        // ----------------------------------------------------
         // Protect code blocks
+        // ----------------------------------------------------
 
         const protectedBlocks = [];
-
 
         value =
             value.replace(
@@ -2199,15 +2262,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
                     return `@@CODE${index}@@`;
-
                 }
             );
 
-
-        // Protect math
+        // ----------------------------------------------------
+        // Protect display math
+        // ----------------------------------------------------
 
         const protectedMath = [];
-
 
         value =
             value.replace(
@@ -2224,10 +2286,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
                     return `@@MATH${index}@@`;
-
                 }
             );
-
 
         value =
             value.replace(
@@ -2244,10 +2304,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
                     return `@@MATH${index}@@`;
-
                 }
             );
-
 
         value =
             value.replace(
@@ -2264,10 +2322,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
                     return `@@MATH${index}@@`;
-
                 }
             );
-
 
         value =
             value.replace(
@@ -2284,18 +2340,19 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
                     return `@@MATH${index}@@`;
-
                 }
             );
 
-
-        // Escape remaining HTML
+        // ----------------------------------------------------
+        // Escape HTML
+        // ----------------------------------------------------
 
         value =
             escapeHTML(value);
 
-
+        // ----------------------------------------------------
         // Headings
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2315,8 +2372,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<h1>$1</h1>"
             );
 
-
+        // ----------------------------------------------------
         // Bold
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2324,17 +2382,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<strong>$1</strong>"
             );
 
-
+        // ----------------------------------------------------
         // Italic
+        // ----------------------------------------------------
 
         value =
             value.replace(
-                /(?<!\*)\*([^*\n]+)\*(?!\*)/g,
-                "<em>$1</em>"
+                /(^|[^\*])\*([^*\n]+)\*(?!\*)/g,
+                "$1<em>$2</em>"
             );
 
-
+        // ----------------------------------------------------
         // Inline code
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2342,8 +2402,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<code>$1</code>"
             );
 
-
+        // ----------------------------------------------------
         // Blockquotes
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2351,8 +2412,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<blockquote>$1</blockquote>"
             );
 
-
-        // Numbered list
+        // ----------------------------------------------------
+        // Numbered lists
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2378,12 +2440,12 @@ document.addEventListener("DOMContentLoaded", () => {
                             .join("");
 
                     return `\n<ol>${items}</ol>\n`;
-
                 }
             );
 
-
-        // Bullet list
+        // ----------------------------------------------------
+        // Bullet lists
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2409,12 +2471,12 @@ document.addEventListener("DOMContentLoaded", () => {
                             .join("");
 
                     return `\n<ul>${items}</ul>\n`;
-
                 }
             );
 
-
+        // ----------------------------------------------------
         // Line breaks
+        // ----------------------------------------------------
 
         value =
             value.replace(
@@ -2428,8 +2490,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<br>"
             );
 
-
+        // ----------------------------------------------------
         // Restore math
+        // ----------------------------------------------------
 
         protectedMath.forEach(
             (html, index) => {
@@ -2439,12 +2502,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         `@@MATH${index}@@`,
                         html
                     );
-
             }
         );
 
-
+        // ----------------------------------------------------
         // Restore code
+        // ----------------------------------------------------
 
         protectedBlocks.forEach(
             (html, index) => {
@@ -2454,23 +2517,20 @@ document.addEventListener("DOMContentLoaded", () => {
                         `@@CODE${index}@@`,
                         html
                     );
-
             }
         );
 
-
         return value;
-
     }
 
+    // ========================================================
+    // DISPLAY MATH
+    // ========================================================
 
     function renderMath(math) {
 
         let expression =
-            escapeHTML(
-                math
-            );
-
+            escapeHTML(math);
 
         expression =
             expression.replace(
@@ -2478,20 +2538,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 '<span class="math-box">$1</span>'
             );
 
-
         expression =
             expression.replace(
                 /\\frac\{([^{}]*)\}\{([^{}]*)\}/g,
                 '<span class="math-fraction"><span class="numerator">$1</span><span class="denominator">$2</span></span>'
             );
 
-
         expression =
             expression.replace(
                 /\\sqrt\{([^{}]*)\}/g,
                 '<span class="sqrt"><span class="sqrt-symbol">√</span><span class="sqrt-content">$1</span></span>'
             );
-
 
         expression =
             expression.replace(
@@ -2499,20 +2556,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 '<span class="math-text">$1</span>'
             );
 
-
         expression =
             expression.replace(
                 /\\times/g,
                 "×"
             );
 
-
         expression =
             expression.replace(
                 /\\cdot/g,
                 "·"
             );
-
 
         expression =
             expression.replace(
@@ -2520,13 +2574,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "±"
             );
 
-
         expression =
             expression.replace(
                 /\\leq/g,
                 "≤"
             );
-
 
         expression =
             expression.replace(
@@ -2534,13 +2586,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "≥"
             );
 
-
         expression =
             expression.replace(
                 /\\neq/g,
                 "≠"
             );
-
 
         expression =
             expression.replace(
@@ -2548,13 +2598,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "→"
             );
 
-
         expression =
             expression.replace(
                 /\\pi/g,
                 "π"
             );
-
 
         expression =
             expression.replace(
@@ -2562,13 +2610,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "θ"
             );
 
-
         expression =
             expression.replace(
                 /\\alpha/g,
                 "α"
             );
-
 
         expression =
             expression.replace(
@@ -2576,13 +2622,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "β"
             );
 
-
         expression =
             expression.replace(
                 /\^(\d+)/g,
                 "<sup>$1</sup>"
             );
-
 
         expression =
             expression.replace(
@@ -2590,13 +2634,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<sup>$1</sup>"
             );
 
-
         expression =
             expression.replace(
                 /_(\d+)/g,
                 "<sub>$1</sub>"
             );
-
 
         expression =
             expression.replace(
@@ -2604,13 +2646,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<sub>$1</sub>"
             );
 
-
         expression =
             expression.replace(
                 /\\left/g,
                 ""
             );
-
 
         expression =
             expression.replace(
@@ -2618,30 +2658,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
 
-
         expression =
             expression.replace(
                 /\\,/g,
                 " "
             );
 
-
         return `
             <div class="math-display">
                 ${expression}
             </div>
         `;
-
     }
 
+    // ========================================================
+    // INLINE MATH
+    // ========================================================
 
     function renderInlineMath(math) {
 
         let expression =
-            escapeHTML(
-                math
-            );
-
+            escapeHTML(math);
 
         expression =
             expression.replace(
@@ -2649,13 +2686,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 '<span class="math-fraction"><span class="numerator">$1</span><span class="denominator">$2</span></span>'
             );
 
-
         expression =
             expression.replace(
                 /\\sqrt\{([^{}]*)\}/g,
                 '<span class="sqrt"><span class="sqrt-symbol">√</span><span class="sqrt-content">$1</span></span>'
             );
-
 
         expression =
             expression.replace(
@@ -2663,13 +2698,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 "×"
             );
 
-
         expression =
             expression.replace(
                 /\\cdot/g,
                 "·"
             );
-
 
         expression =
             expression.replace(
@@ -2677,13 +2710,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 "π"
             );
 
-
         expression =
             expression.replace(
                 /\^(\d+)/g,
                 "<sup>$1</sup>"
             );
 
+        expression =
+            expression.replace(
+                /\^([a-zA-Z])/g,
+                "<sup>$1</sup>"
+            );
 
         expression =
             expression.replace(
@@ -2691,15 +2728,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 "<sub>$1</sub>"
             );
 
+        expression =
+            expression.replace(
+                /_([a-zA-Z])/g,
+                "<sub>$1</sub>"
+            );
 
         return `
             <span class="math-text">
                 ${expression}
             </span>
         `;
-
     }
-
 
     // ========================================================
     // SAFE HTML
@@ -2728,9 +2768,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 /'/g,
                 "&#039;"
             );
-
     }
-
 
     // ========================================================
     // TEXTAREA
@@ -2740,7 +2778,6 @@ document.addEventListener("DOMContentLoaded", () => {
         "input",
         autoResizeTextarea
     );
-
 
     function autoResizeTextarea() {
 
@@ -2756,9 +2793,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 messageInput.scrollHeight,
                 150
             ) + "px";
-
     }
-
 
     // ========================================================
     // SCROLL
@@ -2771,7 +2806,12 @@ document.addEventListener("DOMContentLoaded", () => {
         requestAnimationFrame(
             () => {
 
+                if (!messages) {
+                    return;
+                }
+
                 messages.scrollTo({
+
                     top:
                         messages.scrollHeight,
 
@@ -2780,12 +2820,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             ? "smooth"
                             : "auto"
                 });
-
             }
         );
-
     }
-
 
     // ========================================================
     // TOAST
@@ -2797,18 +2834,19 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        toastMessage.textContent =
-            message;
+        if (toastMessage) {
+
+            toastMessage.textContent =
+                message;
+        }
 
         toast.classList.add(
             "visible"
         );
 
-
         clearTimeout(
             toastTimer
         );
-
 
         toastTimer =
             setTimeout(
@@ -2821,9 +2859,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 },
                 2500
             );
-
     }
-
 
     // ========================================================
     // MOBILE SIDEBAR
@@ -2831,7 +2867,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     mobileMenuButton?.addEventListener(
         "click",
-        () => {
+        event => {
+
+            event.preventDefault();
 
             sidebar?.classList.add(
                 "open"
@@ -2840,16 +2878,13 @@ document.addEventListener("DOMContentLoaded", () => {
             mobileSidebarOverlay?.classList.add(
                 "visible"
             );
-
         }
     );
-
 
     mobileSidebarOverlay?.addEventListener(
         "click",
         closeMobileSidebar
     );
-
 
     function closeMobileSidebar() {
 
@@ -2860,9 +2895,7 @@ document.addEventListener("DOMContentLoaded", () => {
         mobileSidebarOverlay?.classList.remove(
             "visible"
         );
-
     }
-
 
     // ========================================================
     // ESCAPE KEY
@@ -2873,13 +2906,11 @@ document.addEventListener("DOMContentLoaded", () => {
         event => {
 
             if (
-                event.key !== "Escape"
+                event.key !==
+                "Escape"
             ) {
-
                 return;
-
             }
-
 
             premiumModal?.classList.remove(
                 "visible"
@@ -2894,10 +2925,8 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             closeMobileSidebar();
-
         }
     );
-
 
     // ========================================================
     // CLICK OUTSIDE DELETE MODAL
@@ -2913,15 +2942,12 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 closeDeleteModal();
-
             }
-
         }
     );
 
-
     // ========================================================
-    // ONLINE / OFFLINE NOTICE
+    // ONLINE / OFFLINE
     // ========================================================
 
     window.addEventListener(
@@ -2931,10 +2957,8 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(
                 "Internet connection lost"
             );
-
         }
     );
-
 
     window.addEventListener(
         "online",
@@ -2943,10 +2967,8 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(
                 "Back online"
             );
-
         }
     );
-
 
     // ========================================================
     // IMAGE FALLBACK
@@ -2969,13 +2991,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 target.style.display =
                     "none";
-
             }
 
         },
         true
     );
-
 
     // ========================================================
     // GLOBAL DEBUG HELPERS
@@ -2985,23 +3005,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         newChat: () => {
 
+            if (isGenerating) {
+                return;
+            }
+
             createChat();
 
             renderRecentChats();
 
             renderCurrentChat();
-
         },
 
         clearChat: () => {
 
             clearButton?.click();
-
         },
 
-        setMode: (
-            mode
-        ) => {
+        setMode: mode => {
 
             if (
                 mode === "normal" ||
@@ -3009,17 +3029,37 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 setMode(mode);
-
             }
-
         },
 
         getChats: () => {
 
             return chats;
+        },
 
+        getCurrentChat: () => {
+
+            return getCurrentChat();
+        },
+
+        send: () => {
+
+            return sendMessage();
         }
-
     };
+
+    // ========================================================
+    // FINAL READY MESSAGE
+    // ========================================================
+
+    console.log(
+        "%cSiksha AI frontend loaded successfully.",
+        "color:#a855f7;font-weight:bold;font-size:14px"
+    );
+
+    console.log(
+        "Backend:",
+        API_BASE
+    );
 
 });
