@@ -1,13 +1,22 @@
 # ============================================================
-# SIKSHA AI — PRODUCTION BACKEND ENGINE V3
+# SIKSHA AI — PRODUCTION BACKEND ENGINE V7
 # Gemini Chat • Premium • Files • TTS
 # Flask API • Strong CORS • Render Ready
 #
-# V3 FIXES:
-# - Removes accidental Siksha AI logo/link from AI responses
-# - Removes logo references from normal chat responses
-# - Removes logo references from file-solving responses
-# - Preserves all existing features
+# V7 FIXES:
+# - Controlled Gemini retry system
+# - Disables SDK automatic retry storm
+# - Fast model fallback
+# - Prevents long worker blocking
+# - 503-safe response
+# - Always returns a usable JSON response for chat
+# - Emergency local fallback responses
+# - Preserves memory/history
+# - Preserves normal/premium modes
+# - Preserves file solving
+# - Preserves TTS
+# - Removes accidental Siksha AI logo/link/image
+# - Strong CORS on success AND error responses
 # ============================================================
 
 import os
@@ -45,11 +54,29 @@ if not GEMINI_API_KEY:
 
 # ============================================================
 # GEMINI CLIENT
+#
+# IMPORTANT:
+# Google GenAI SDK normally performs automatic retries for
+# transient errors. We disable that here because Siksha AI
+# has its own controlled fallback system.
 # ============================================================
 
-client = genai.Client(
-    api_key=GEMINI_API_KEY
-)
+try:
+    client = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(
+            timeout=30000,
+            retry_options=types.HttpRetryOptions(
+                attempts=1
+            )
+        )
+    )
+except Exception:
+    # Compatibility fallback in case an older google-genai
+    # package does not expose HttpRetryOptions.
+    client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
 
 
 # ============================================================
@@ -84,11 +111,19 @@ TTS_VOICE = os.getenv(
 
 
 # ============================================================
-# RETRY SETTINGS
+# CONTROLLED RETRY SETTINGS
 # ============================================================
 
-MAX_RETRIES = 2
-RETRY_BASE_SECONDS = 1.5
+# One attempt per model.
+#
+# We deliberately do NOT perform:
+# 3 attempts × 4 models
+#
+# This prevents Render workers from being blocked for too long.
+
+MODEL_ATTEMPTS = 1
+
+BETWEEN_MODEL_DELAY = 0.15
 
 
 # ============================================================
@@ -106,10 +141,13 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
 ALLOWED_ORIGINS = [
     "https://siksha-ai.onrender.com",
+
     "http://localhost:5500",
     "http://127.0.0.1:5500",
+
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+
     "http://localhost:5173",
     "http://127.0.0.1:5173"
 ]
@@ -199,6 +237,23 @@ def api_options(path):
 
 
 # ============================================================
+# RESPONSE ERROR HELPER
+# ============================================================
+
+def error_response(message, status=500, debug=None):
+
+    payload = {
+        "success": False,
+        "error": message
+    }
+
+    if debug:
+        payload["debug"] = str(debug)[:1500]
+
+    return jsonify(payload), status
+
+
+# ============================================================
 # 413 — FILE TOO LARGE
 # ============================================================
 
@@ -213,9 +268,6 @@ def request_too_large(error):
 
 # ============================================================
 # RESPONSE CLEANER
-#
-# Prevents Gemini from accidentally putting the Siksha AI
-# logo/link/image inside the actual AI answer.
 # ============================================================
 
 def clean_ai_response(text):
@@ -225,48 +277,7 @@ def clean_ai_response(text):
 
     cleaned = text
 
-    # --------------------------------------------------------
-    # Remove Markdown image containing Siksha AI logo
-    # Example:
-    # ![Siksha AI](https://siksha-ai.onrender.com/assets/logo.png)
-    # --------------------------------------------------------
-
-    cleaned = re.sub(
-        r'!\[[^\]]*Siksha\s*AI[^\]]*\]\([^)]*assets/logo\.png[^)]*\)',
-        '',
-        cleaned,
-        flags=re.IGNORECASE
-    )
-
-    # --------------------------------------------------------
-    # Remove Markdown link containing Siksha AI logo
-    # Example:
-    # [Siksha AI](https://siksha-ai.onrender.com/assets/logo.png)
-    # --------------------------------------------------------
-
-    cleaned = re.sub(
-        r'\[[^\]]*Siksha\s*AI[^\]]*\]\([^)]*assets/logo\.png[^)]*\)',
-        '',
-        cleaned,
-        flags=re.IGNORECASE
-    )
-
-    # --------------------------------------------------------
-    # Remove raw logo URL
-    # --------------------------------------------------------
-
-    cleaned = re.sub(
-        r'https?://siksha-ai\.onrender\.com/assets/logo\.png',
-        '',
-        cleaned,
-        flags=re.IGNORECASE
-    )
-
-    # --------------------------------------------------------
-    # Remove any Markdown image/link specifically targeting
-    # the Siksha AI logo.
-    # --------------------------------------------------------
-
+    # Markdown images containing logo.png
     cleaned = re.sub(
         r'!\[[^\]]*\]\([^)]*logo\.png[^)]*\)',
         '',
@@ -274,17 +285,47 @@ def clean_ai_response(text):
         flags=re.IGNORECASE
     )
 
+    # Markdown links containing logo.png
     cleaned = re.sub(
-        r'\[[^\]]*Siksha\s*AI[^\]]*\]\([^)]*logo\.png[^)]*\)',
+        r'\[[^\]]*\]\([^)]*logo\.png[^)]*\)',
         '',
         cleaned,
         flags=re.IGNORECASE
     )
 
-    # --------------------------------------------------------
-    # Remove excessive blank lines created by removal
-    # --------------------------------------------------------
+    # Raw logo URL
+    cleaned = re.sub(
+        r'https?://[^\s)\]>"\']*assets/logo\.png[^\s)\]>"\']*',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
 
+    # Any HTML image pointing to logo.png
+    cleaned = re.sub(
+        r'<img\b[^>]*logo\.png[^>]*>',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # Any remaining logo URL/path
+    cleaned = re.sub(
+        r'[^\s)\]>"\']*assets/logo\.png[^\s)\]>"\']*',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # Remove standalone Siksha AI logo markdown
+    cleaned = re.sub(
+        r'^\s*\[Siksha\s+AI\]\s*$',
+        '',
+        cleaned,
+        flags=re.IGNORECASE | re.MULTILINE
+    )
+
+    # Remove excessive blank lines
     cleaned = re.sub(
         r'\n[ \t]*\n[ \t]*\n+',
         '\n\n',
@@ -299,22 +340,19 @@ def clean_ai_response(text):
 # ============================================================
 
 NORMAL_SYSTEM = """
-You are Siksha AI, a premium Indian education-focused AI assistant.
+You are Siksha AI, an Indian education-focused AI assistant.
 
 Your primary purpose is to help students learn concepts clearly.
 
 IMPORTANT OUTPUT RULE:
-Never include the Siksha AI logo, logo URL, image URL, avatar markup,
-HTML image, Markdown image, or Markdown link pointing to the Siksha AI logo.
 
-Never write:
-[Siksha AI](...)
-![Siksha AI](...)
-or any reference to:
-https://siksha-ai.onrender.com/assets/logo.png
+Never include the Siksha AI logo, logo URL, image URL,
+avatar markup, HTML image, Markdown image, or Markdown link
+pointing to the Siksha AI logo.
 
 The frontend automatically displays the Siksha AI avatar.
-You must only provide the educational response.
+
+Only provide the educational response.
 
 LANGUAGE:
 
@@ -361,12 +399,6 @@ MATH FORMAT:
 
 Use LaTeX-style notation where useful.
 
-Example:
-
-\\[
-d=\\sqrt{(x_2-x_1)^2+(y_2-y_1)^2}
-\\]
-
 For important final answers, use:
 
 \\boxed{answer}
@@ -381,19 +413,17 @@ PREMIUM_SYSTEM = """
 You are Siksha AI Premium, an advanced educational AI tutor.
 
 IMPORTANT OUTPUT RULE:
-Never include the Siksha AI logo, logo URL, image URL, avatar markup,
-HTML image, Markdown image, or Markdown link pointing to the Siksha AI logo.
 
-Never write:
-[Siksha AI](...)
-![Siksha AI](...)
-or any reference to:
-https://siksha-ai.onrender.com/assets/logo.png
+Never include the Siksha AI logo, logo URL, image URL,
+avatar markup, HTML image, Markdown image, or Markdown link
+pointing to the Siksha AI logo.
 
 The frontend automatically displays the Siksha AI avatar.
-You must only provide the educational response.
 
-You help students understand difficult concepts deeply while remaining student-friendly.
+Only provide the educational response.
+
+You help students understand difficult concepts deeply
+while remaining student-friendly.
 
 LANGUAGE:
 
@@ -436,54 +466,7 @@ You are Siksha AI Premium, not ChatGPT.
 
 
 # ============================================================
-# ERROR RESPONSE
-# ============================================================
-
-def error_response(message, status=500, debug=None):
-
-    payload = {
-        "success": False,
-        "error": message
-    }
-
-    if debug:
-        payload["debug"] = str(debug)[:1500]
-
-    return jsonify(payload), status
-
-
-# ============================================================
-# HEALTH / HOME
-# ============================================================
-
-@app.get("/")
-def home():
-
-    return jsonify({
-        "name": "Siksha AI",
-        "status": "online",
-        "message": "Siksha AI backend is running.",
-        "cors": "enabled"
-    })
-
-
-@app.get("/api/health")
-def health():
-
-    return jsonify({
-        "status": "ok",
-        "service": "Siksha AI",
-        "chat_model": CHAT_MODEL,
-        "premium_model": PREMIUM_MODEL,
-        "fallback_models": FALLBACK_MODELS,
-        "tts_model": TTS_MODEL,
-        "tts_voice": TTS_VOICE,
-        "cors": "enabled"
-    })
-
-
-# ============================================================
-# HELPERS
+# SAFE EXCEPTION TEXT
 # ============================================================
 
 def safe_exception_text(exc):
@@ -502,11 +485,16 @@ def safe_exception_text(exc):
     return text[:1500]
 
 
+# ============================================================
+# TEMPORARY GEMINI ERROR DETECTION
+# ============================================================
+
 def is_temporary_gemini_error(exc):
 
     text = safe_exception_text(exc).upper()
 
     temporary_codes = (
+        "408",
         "429",
         "500",
         "502",
@@ -515,7 +503,8 @@ def is_temporary_gemini_error(exc):
         "UNAVAILABLE",
         "RESOURCE_EXHAUSTED",
         "INTERNAL",
-        "DEADLINE"
+        "DEADLINE",
+        "TIMEOUT"
     )
 
     return any(
@@ -523,6 +512,10 @@ def is_temporary_gemini_error(exc):
         for code in temporary_codes
     )
 
+
+# ============================================================
+# MODEL LIST
+# ============================================================
 
 def model_list(primary_model):
 
@@ -538,6 +531,10 @@ def model_list(primary_model):
 
     return models
 
+
+# ============================================================
+# CLEAN CHAT HISTORY
+# ============================================================
 
 def clean_history(history):
 
@@ -573,15 +570,12 @@ def clean_history(history):
             "ai",
             "model"
         ):
-
             gemini_role = "model"
 
         elif role == "user":
-
             gemini_role = "user"
 
         else:
-
             continue
 
         cleaned.append({
@@ -596,6 +590,10 @@ def clean_history(history):
     return cleaned
 
 
+# ============================================================
+# GET TEXT FROM GEMINI RESPONSE
+# ============================================================
+
 def get_response_text(response):
 
     try:
@@ -604,9 +602,7 @@ def get_response_text(response):
 
         if isinstance(text, str) and text.strip():
 
-            return clean_ai_response(
-                text
-            )
+            return clean_ai_response(text)
 
     except Exception:
         pass
@@ -615,7 +611,254 @@ def get_response_text(response):
 
 
 # ============================================================
-# GEMINI CHAT WITH RETRY + FALLBACK
+# LOCAL EMERGENCY RESPONSE ENGINE
+#
+# This is NOT intended to replace Gemini.
+#
+# It exists so the website can still visibly answer instead
+# of returning a server crash when Gemini is temporarily down.
+# ============================================================
+
+def emergency_local_response(message):
+
+    text = message.lower().strip()
+
+    # --------------------------------------------------------
+    # CREATOR
+    # --------------------------------------------------------
+
+    if (
+        "who created you" in text
+        or "who made you" in text
+        or "who built you" in text
+        or "creator" in text
+    ):
+        return (
+            "I was created by ANSH RAJ."
+        )
+
+    # --------------------------------------------------------
+    # GREETINGS
+    # --------------------------------------------------------
+
+    if text in (
+        "hi",
+        "hello",
+        "hey",
+        "hii",
+        "hiii",
+        "namaste",
+        "good morning",
+        "good afternoon",
+        "good evening"
+    ):
+        return (
+            "Hey! 👋 I’m Siksha AI.\n\n"
+            "Ask me anything you want to learn — "
+            "Physics, Chemistry, Biology, Maths, "
+            "History, Geography or general questions."
+        )
+
+    # --------------------------------------------------------
+    # NEWTON THIRD LAW
+    # --------------------------------------------------------
+
+    if (
+        "newton" in text
+        and "third law" in text
+    ):
+        return (
+            "**Newton's Third Law of Motion** states that "
+            "for every action, there is an equal and opposite reaction.\n\n"
+            "For example, when you push a wall, you exert a force on the wall. "
+            "The wall exerts an equal force back on you in the opposite direction.\n\n"
+            "**Important:** The two forces act on two different objects."
+        )
+
+    # --------------------------------------------------------
+    # NEWTON FIRST LAW
+    # --------------------------------------------------------
+
+    if (
+        "newton" in text
+        and "first law" in text
+    ):
+        return (
+            "**Newton's First Law of Motion** states that an object "
+            "remains at rest or continues moving with uniform velocity "
+            "in a straight line unless an external unbalanced force acts on it.\n\n"
+            "This is also called the **law of inertia**."
+        )
+
+    # --------------------------------------------------------
+    # NEWTON SECOND LAW
+    # --------------------------------------------------------
+
+    if (
+        "newton" in text
+        and "second law" in text
+    ):
+        return (
+            "**Newton's Second Law of Motion** states that the rate of "
+            "change of momentum is proportional to the applied force.\n\n"
+            "For constant mass:\n\n"
+            "**F = ma**\n\n"
+            "where F is force, m is mass and a is acceleration."
+        )
+
+    # --------------------------------------------------------
+    # FORCE
+    # --------------------------------------------------------
+
+    if (
+        "what is force" in text
+        or text == "force"
+        or "define force" in text
+    ):
+        return (
+            "**Force** is a push or pull that can change the state "
+            "of motion, direction or shape of an object.\n\n"
+            "SI unit: **newton (N)**."
+        )
+
+    # --------------------------------------------------------
+    # GRAVITY
+    # --------------------------------------------------------
+
+    if (
+        "what is gravity" in text
+        or "define gravity" in text
+    ):
+        return (
+            "**Gravity** is the force of attraction between objects "
+            "having mass.\n\n"
+            "Near Earth's surface, gravity pulls objects toward the "
+            "centre of Earth."
+        )
+
+    # --------------------------------------------------------
+    # SPEED
+    # --------------------------------------------------------
+
+    if (
+        "what is speed" in text
+        or "define speed" in text
+    ):
+        return (
+            "**Speed** is the distance travelled by an object per unit time.\n\n"
+            "**Speed = Distance / Time**\n\n"
+            "SI unit: **m/s**."
+        )
+
+    # --------------------------------------------------------
+    # VELOCITY
+    # --------------------------------------------------------
+
+    if (
+        "what is velocity" in text
+        or "define velocity" in text
+    ):
+        return (
+            "**Velocity** is the displacement of an object per unit time.\n\n"
+            "Velocity is a vector quantity, so it has both magnitude and direction."
+        )
+
+    # --------------------------------------------------------
+    # WORK
+    # --------------------------------------------------------
+
+    if (
+        "what is work" in text
+        or "define work" in text
+    ):
+        return (
+            "In physics, **work is done when a force produces displacement "
+            "in the direction of the force**.\n\n"
+            "**W = F × s**\n\n"
+            "SI unit: **joule (J)**."
+        )
+
+    # --------------------------------------------------------
+    # ENERGY
+    # --------------------------------------------------------
+
+    if (
+        "what is energy" in text
+        or "define energy" in text
+    ):
+        return (
+            "**Energy** is the capacity to do work.\n\n"
+            "Its SI unit is the **joule (J)**.\n\n"
+            "Common forms include kinetic energy and potential energy."
+        )
+
+    # --------------------------------------------------------
+    # CELL
+    # --------------------------------------------------------
+
+    if (
+        "what is cell" in text
+        or "define cell" in text
+    ):
+        return (
+            "A **cell** is the basic structural and functional unit "
+            "of life.\n\n"
+            "All living organisms are made up of one or more cells."
+        )
+
+    # --------------------------------------------------------
+    # PHOTOSYNTHESIS
+    # --------------------------------------------------------
+
+    if "photosynthesis" in text:
+        return (
+            "**Photosynthesis** is the process by which green plants "
+            "prepare food using carbon dioxide and water in the presence "
+            "of sunlight and chlorophyll.\n\n"
+            "The main product is glucose, and oxygen is released."
+        )
+
+    # --------------------------------------------------------
+    # PH / ACIDS
+    # --------------------------------------------------------
+
+    if (
+        "what is acid" in text
+        or "define acid" in text
+    ):
+        return (
+            "An **acid** is a substance that produces hydrogen ions "
+            "(H⁺) in aqueous solution.\n\n"
+            "For example, hydrochloric acid is HCl."
+        )
+
+    # --------------------------------------------------------
+    # PRIME NUMBERS
+    # --------------------------------------------------------
+
+    if "prime number" in text:
+        return (
+            "A **prime number** is a natural number greater than 1 "
+            "having exactly two positive factors: 1 and itself.\n\n"
+            "Examples: **2, 3, 5, 7, 11, 13**."
+        )
+
+    # --------------------------------------------------------
+    # GENERIC EMERGENCY RESPONSE
+    # --------------------------------------------------------
+
+    return (
+        "I'm temporarily running in **backup mode** because the "
+        "main AI service is busy right now.\n\n"
+        "Your question was received successfully, but I cannot "
+        "generate a full AI answer for this particular question "
+        "until the AI service becomes available again.\n\n"
+        "Please try the same question again in a few seconds."
+    )
+
+
+# ============================================================
+# GEMINI CHAT — CONTROLLED FALLBACK
 # ============================================================
 
 def generate_chat_response(
@@ -628,72 +871,49 @@ def generate_chat_response(
 
     last_exception = None
 
-    for model_index, model_name in enumerate(models):
+    for index, model_name in enumerate(models):
 
-        for attempt in range(MAX_RETRIES + 1):
+        try:
 
-            try:
+            print("")
+            print("-" * 60)
+            print("Gemini controlled attempt")
+            print("Model :", model_name)
+            print("Attempt: 1")
+            print("-" * 60)
 
-                print("")
-                print("-" * 60)
-                print("Gemini attempt")
-                print("Model  :", model_name)
-                print("Attempt:", attempt + 1)
-                print("-" * 60)
-
-                response = client.models.generate_content(
-
-                    model=model_name,
-
-                    contents=contents,
-
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction
-                    )
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction
                 )
+            )
 
-                return response, model_name
+            return response, model_name
 
-            except Exception as exc:
+        except Exception as exc:
 
-                last_exception = exc
+            last_exception = exc
 
-                print("")
-                print("[Gemini error]")
-                print("Model  :", model_name)
-                print("Attempt:", attempt + 1)
-                print("Error  :", safe_exception_text(exc))
+            print("")
+            print("[Gemini error]")
+            print("Model :", model_name)
+            print("Error :", safe_exception_text(exc))
 
-                if not is_temporary_gemini_error(exc):
+            if not is_temporary_gemini_error(exc):
 
-                    raise
+                raise
 
-                if attempt < MAX_RETRIES:
-
-                    delay = (
-                        RETRY_BASE_SECONDS
-                        * (2 ** attempt)
-                    )
-
-                    print(
-                        f"Retrying in {delay:.1f}s..."
-                    )
-
-                    time.sleep(delay)
-
-                    continue
+            if index < len(models) - 1:
 
                 print(
-                    f"Model {model_name} exhausted."
+                    "Switching immediately to fallback model..."
                 )
 
-                if model_index < len(models) - 1:
+                time.sleep(BETWEEN_MODEL_DELAY)
 
-                    print(
-                        "Switching to fallback model..."
-                    )
-
-                break
+                continue
 
     if last_exception:
         raise last_exception
@@ -704,7 +924,7 @@ def generate_chat_response(
 
 
 # ============================================================
-# FILE GEMINI GENERATION WITH FALLBACK
+# FILE GEMINI GENERATION — CONTROLLED FALLBACK
 # ============================================================
 
 def generate_file_response(
@@ -717,68 +937,49 @@ def generate_file_response(
 
     last_exception = None
 
-    for model_index, model_name in enumerate(models):
+    for index, model_name in enumerate(models):
 
-        for attempt in range(MAX_RETRIES + 1):
+        try:
 
-            try:
+            print("")
+            print("-" * 60)
+            print("Gemini FILE controlled attempt")
+            print("Model :", model_name)
+            print("Attempt: 1")
+            print("-" * 60)
 
-                print("")
-                print("-" * 60)
-                print("Gemini FILE attempt")
-                print("Model  :", model_name)
-                print("Attempt:", attempt + 1)
-                print("-" * 60)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction
+                )
+            )
 
-                response = client.models.generate_content(
+            return response, model_name
 
-                    model=model_name,
+        except Exception as exc:
 
-                    contents=contents,
+            last_exception = exc
 
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction
-                    )
+            print("")
+            print("[Gemini FILE error]")
+            print("Model :", model_name)
+            print("Error :", safe_exception_text(exc))
+
+            if not is_temporary_gemini_error(exc):
+
+                raise
+
+            if index < len(models) - 1:
+
+                print(
+                    "Switching file request to fallback model..."
                 )
 
-                return response, model_name
+                time.sleep(BETWEEN_MODEL_DELAY)
 
-            except Exception as exc:
-
-                last_exception = exc
-
-                print("")
-                print("[Gemini FILE error]")
-                print("Model  :", model_name)
-                print("Attempt:", attempt + 1)
-                print("Error  :", safe_exception_text(exc))
-
-                if not is_temporary_gemini_error(exc):
-
-                    raise
-
-                if attempt < MAX_RETRIES:
-
-                    delay = (
-                        RETRY_BASE_SECONDS
-                        * (2 ** attempt)
-                    )
-
-                    print(
-                        f"Retrying file request in {delay:.1f}s..."
-                    )
-
-                    time.sleep(delay)
-
-                    continue
-
-                if model_index < len(models) - 1:
-
-                    print(
-                        "Switching file request to fallback model..."
-                    )
-
-                break
+                continue
 
     if last_exception:
         raise last_exception
@@ -848,6 +1049,29 @@ def chat():
                 400
             )
 
+        # ----------------------------------------------------
+        # FIXED CREATOR RESPONSE
+        # ----------------------------------------------------
+
+        creator_text = message.lower()
+
+        if (
+            "who created you" in creator_text
+            or "who made you" in creator_text
+            or "who built you" in creator_text
+        ):
+
+            return jsonify({
+                "success": True,
+                "answer": "I was created by ANSH RAJ.",
+                "mode": mode if mode in ("normal", "premium") else "normal",
+                "model": "local-creator-response"
+            })
+
+        # ----------------------------------------------------
+        # MODE
+        # ----------------------------------------------------
+
         if mode == "premium":
 
             primary_model = PREMIUM_MODEL
@@ -856,8 +1080,13 @@ def chat():
         else:
 
             mode = "normal"
+
             primary_model = CHAT_MODEL
             system_instruction = NORMAL_SYSTEM
+
+        # ----------------------------------------------------
+        # HISTORY
+        # ----------------------------------------------------
 
         cleaned_history = clean_history(
             history
@@ -881,56 +1110,76 @@ def chat():
         print("=" * 60)
         print("SIKSHA AI CHAT REQUEST")
         print("=" * 60)
-        print("Mode       :", mode)
-        print("Primary    :", primary_model)
-        print("Fallbacks  :", ", ".join(FALLBACK_MODELS))
-        print("History    :", len(cleaned_history))
-        print("Message    :", message[:200])
+        print("Mode      :", mode)
+        print("Primary   :", primary_model)
+        print("Fallbacks :", ", ".join(FALLBACK_MODELS))
+        print("History   :", len(cleaned_history))
+        print("Message   :", message[:200])
         print("=" * 60)
 
-        response, model_used = generate_chat_response(
+        # ----------------------------------------------------
+        # GEMINI
+        # ----------------------------------------------------
 
-            primary_model=primary_model,
+        try:
 
-            contents=contents,
-
-            system_instruction=system_instruction
-        )
-
-        answer = get_response_text(
-            response
-        )
-
-        if not answer:
-
-            print(
-                "[Siksha AI] Empty Gemini response."
+            response, model_used = generate_chat_response(
+                primary_model=primary_model,
+                contents=contents,
+                system_instruction=system_instruction
             )
 
-            return error_response(
-                "Siksha AI did not return a text response.",
-                502
+            answer = get_response_text(
+                response
             )
 
-        print(
-            "[Siksha AI] Response generated successfully."
-        )
+            if answer:
 
-        print(
-            "[Siksha AI] Model used:",
-            model_used
-        )
+                print(
+                    "[Siksha AI] Response generated successfully."
+                )
 
-        return jsonify({
+                print(
+                    "[Siksha AI] Model used:",
+                    model_used
+                )
 
-            "success": True,
+                return jsonify({
+                    "success": True,
+                    "answer": answer,
+                    "mode": mode,
+                    "model": model_used
+                })
 
-            "answer": answer,
+            raise RuntimeError(
+                "Gemini returned an empty response."
+            )
 
-            "mode": mode,
+        except Exception as gemini_exc:
 
-            "model": model_used
-        })
+            error_text = safe_exception_text(
+                gemini_exc
+            )
+
+            print("")
+            print("[Siksha AI] Gemini unavailable.")
+            print(error_text)
+
+            # ------------------------------------------------
+            # EMERGENCY LOCAL RESPONSE
+            # ------------------------------------------------
+
+            fallback_answer = emergency_local_response(
+                message
+            )
+
+            return jsonify({
+                "success": True,
+                "answer": fallback_answer,
+                "mode": mode,
+                "model": "local-emergency-fallback",
+                "fallback": True
+            })
 
     except Exception as exc:
 
@@ -947,27 +1196,44 @@ def chat():
 
         traceback.print_exc()
 
-        if is_temporary_gemini_error(exc):
+        # Even an unexpected backend error gets a valid
+        # response rather than crashing the frontend.
 
-            return error_response(
+        try:
 
-                "Gemini is temporarily unavailable. "
-                "Siksha AI tried the available fallback models. "
-                "Please try again shortly.",
+            message = ""
 
-                503,
-
-                debug=error_text
+            data = request.get_json(
+                silent=True
             )
 
-        return error_response(
+            if isinstance(data, dict):
 
-            "Siksha AI could not process your request right now.",
+                message = str(
+                    data.get(
+                        "message",
+                        ""
+                    )
+                )
 
-            500,
+            fallback_answer = emergency_local_response(
+                message
+            )
 
-            debug=error_text
-        )
+        except Exception:
+
+            fallback_answer = (
+                "Siksha AI received your question, but the "
+                "AI service is temporarily busy. Please try again."
+            )
+
+        return jsonify({
+            "success": True,
+            "answer": fallback_answer,
+            "mode": "normal",
+            "model": "local-emergency-fallback",
+            "fallback": True
+        })
 
 
 # ============================================================
@@ -1016,17 +1282,14 @@ def solve_file():
         ).suffix.lower()
 
         allowed_extensions = {
-
             ".pdf",
             ".txt",
             ".md",
             ".csv",
-
             ".jpg",
             ".jpeg",
             ".png",
             ".webp",
-
             ".py",
             ".js",
             ".html",
@@ -1053,13 +1316,10 @@ def solve_file():
             temp_path = temp_file.name
 
         mime_type = (
-
             uploaded.mimetype
-
             or mimetypes.guess_type(
                 filename
             )[0]
-
             or "application/octet-stream"
         )
 
@@ -1071,6 +1331,10 @@ def solve_file():
         print("MIME     :", mime_type)
         print("Mode     :", mode)
         print("=" * 60)
+
+        # ----------------------------------------------------
+        # UPLOAD TO GEMINI
+        # ----------------------------------------------------
 
         gemini_file = client.files.upload(
             file=temp_path
@@ -1092,8 +1356,9 @@ File name:
 {filename}
 
 IMPORTANT:
+
 Do not include any Siksha AI logo, logo URL, image URL,
-avatar markup, Markdown image or Markdown logo link in your answer.
+avatar markup, Markdown image or Markdown logo link.
 
 Give a detailed but student-friendly explanation.
 
@@ -1129,8 +1394,9 @@ File name:
 {filename}
 
 IMPORTANT:
+
 Do not include any Siksha AI logo, logo URL, image URL,
-avatar markup, Markdown image or Markdown logo link in your answer.
+avatar markup, Markdown image or Markdown logo link.
 
 Explain the answer clearly and step-by-step.
 
@@ -1146,49 +1412,70 @@ Use English, Hindi or Hinglish according to the student's language.
             file_system = NORMAL_SYSTEM
 
         primary_model = (
-
             PREMIUM_MODEL
-
             if mode == "premium"
-
             else CHAT_MODEL
         )
 
-        response, model_used = generate_file_response(
+        try:
 
-            primary_model=primary_model,
-
-            contents=[
-                gemini_file,
-                file_instruction
-            ],
-
-            system_instruction=file_system
-        )
-
-        answer = get_response_text(
-            response
-        )
-
-        if not answer:
-
-            return error_response(
-                "Siksha AI could not understand the uploaded file.",
-                502
+            response, model_used = generate_file_response(
+                primary_model=primary_model,
+                contents=[
+                    gemini_file,
+                    file_instruction
+                ],
+                system_instruction=file_system
             )
 
-        return jsonify({
+            answer = get_response_text(
+                response
+            )
 
-            "success": True,
+            if not answer:
 
-            "answer": answer,
+                raise RuntimeError(
+                    "Gemini returned an empty file response."
+                )
 
-            "filename": filename,
+            return jsonify({
+                "success": True,
+                "answer": answer,
+                "filename": filename,
+                "mode": mode,
+                "model": model_used
+            })
 
-            "mode": mode,
+        except Exception as gemini_exc:
 
-            "model": model_used
-        })
+            print("")
+            print(
+                "[Siksha AI] Gemini file processing unavailable."
+            )
+
+            print(
+                safe_exception_text(
+                    gemini_exc
+                )
+            )
+
+            # IMPORTANT:
+            # We still return success=True so the frontend
+            # receives a clean response rather than a CORS-
+            # looking 500 error.
+
+            return jsonify({
+                "success": True,
+                "answer": (
+                    f"I received **{filename}**, but the AI file "
+                    "analysis service is temporarily busy.\n\n"
+                    "Please try the file again in a few seconds."
+                ),
+                "filename": filename,
+                "mode": mode,
+                "model": "local-file-fallback",
+                "fallback": True
+            })
 
     except Exception as exc:
 
@@ -1205,26 +1492,16 @@ Use English, Hindi or Hinglish according to the student's language.
 
         traceback.print_exc()
 
-        if is_temporary_gemini_error(exc):
-
-            return error_response(
-
-                "Gemini is temporarily unavailable while processing the file. "
-                "Please try again shortly.",
-
-                503,
-
-                debug=error_text
-            )
-
-        return error_response(
-
-            "Siksha AI could not process this file.",
-
-            500,
-
-            debug=error_text
-        )
+        return jsonify({
+            "success": True,
+            "answer": (
+                "I received your file, but I could not process "
+                "it right now. Please try again."
+            ),
+            "mode": "normal",
+            "model": "local-file-fallback",
+            "fallback": True
+        })
 
     finally:
 
@@ -1286,8 +1563,10 @@ def text_to_speech():
 
             text = text[:12000]
 
-        # Clean any accidental logo reference before TTS.
-        text = clean_ai_response(text)
+        # Remove accidental logo references
+        text = clean_ai_response(
+            text
+        )
 
         tts_prompt = f"""
 Read the following educational response aloud.
@@ -1304,7 +1583,9 @@ Voice style:
 - suitable for a student learning with an AI tutor
 
 Do not add extra words.
+
 Do not summarize.
+
 Read only the provided content.
 
 TEXT:
@@ -1339,6 +1620,7 @@ TEXT:
         )
 
         audio_bytes = None
+
         mime_type = "audio/wav"
 
         try:
@@ -1407,13 +1689,9 @@ TEXT:
         audio_stream.seek(0)
 
         return send_file(
-
             audio_stream,
-
             mimetype=mime_type,
-
             as_attachment=False,
-
             download_name="siksha-ai-voice.wav"
         )
 
@@ -1432,26 +1710,74 @@ TEXT:
 
         traceback.print_exc()
 
-        if is_temporary_gemini_error(exc):
-
-            return error_response(
-
-                "Gemini voice service is temporarily unavailable. "
-                "Please try again shortly.",
-
-                503,
-
-                debug=error_text
-            )
+        # Return JSON so frontend can gracefully fall back
+        # to browser speech synthesis.
 
         return error_response(
-
-            "Siksha AI voice generation failed.",
-
-            500,
-
+            "Siksha AI voice service is temporarily unavailable. "
+            "Please use normal text mode or try voice again shortly.",
+            503,
             debug=error_text
         )
+
+
+# ============================================================
+# HEALTH / HOME
+# ============================================================
+
+@app.get("/")
+def home():
+
+    return jsonify({
+        "name": "Siksha AI",
+        "status": "online",
+        "message": "Siksha AI backend is running.",
+        "cors": "enabled",
+        "engine": "V7"
+    })
+
+
+@app.get("/api/health")
+def health():
+
+    return jsonify({
+        "status": "ok",
+        "service": "Siksha AI",
+        "engine": "V7",
+        "chat_model": CHAT_MODEL,
+        "premium_model": PREMIUM_MODEL,
+        "fallback_models": FALLBACK_MODELS,
+        "tts_model": TTS_MODEL,
+        "tts_voice": TTS_VOICE,
+        "cors": "enabled",
+        "controlled_retries": True
+    })
+
+
+# ============================================================
+# GLOBAL EXCEPTION HANDLER
+#
+# Ensures unexpected Flask errors still pass through the
+# normal JSON/CORS response pipeline.
+# ============================================================
+
+@app.errorhandler(Exception)
+def global_exception_handler(error):
+
+    print("")
+    print("=" * 60)
+    print("GLOBAL SIKSHA AI ERROR")
+    print("=" * 60)
+
+    traceback.print_exc()
+
+    print("=" * 60)
+
+    return error_response(
+        "Siksha AI encountered a temporary server issue. "
+        "Please try again.",
+        500
+    )
 
 
 # ============================================================
@@ -1469,7 +1795,7 @@ if __name__ == "__main__":
 
     print("")
     print("=" * 60)
-    print("              SIKSHA AI BACKEND")
+    print("              SIKSHA AI BACKEND V7")
     print("=" * 60)
 
     print(
@@ -1495,6 +1821,14 @@ if __name__ == "__main__":
 
     print(
         "CORS          : ENABLED"
+    )
+
+    print(
+        "Controlled SDK retries : ENABLED"
+    )
+
+    print(
+        "Local emergency fallback : ENABLED"
     )
 
     print(
