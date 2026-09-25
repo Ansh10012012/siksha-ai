@@ -1,11 +1,18 @@
 // ============================================================
-// SIKSHA AI — FINAL FRONTEND ENGINE V4
+// SIKSHA AI — FINAL FRONTEND ENGINE V6
 // CHAT + MEMORY + PREMIUM + HINDI + ENGLISH + HINGLISH
 // VOICE INPUT + GEMINI TTS + FILE UPLOAD
 // RECENT CHATS + SEARCH + DELETE
 // MATH RENDERING + MARKDOWN + TYPING ANIMATION
 // RENDER DEPLOYMENT READY
-// CONNECTION + DOM STABILITY FIXED
+//
+// V6 FIXES
+// - AI RESPONSE LOGO COMPLETELY BLOCKED
+// - UI AI AVATAR FIXED TO 32x32
+// - TEMPORARY UPLOAD STATE NEVER PERSISTS
+// - UPLOAD PREVIEW RESET ON PAGE START / PAGE RESTORE
+// - PREMIUM MODE CLASS COMPATIBILITY
+// - EXTRA LOGO / IMAGE / URL SANITIZATION
 // ============================================================
 
 "use strict";
@@ -37,11 +44,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const CURRENT_CHAT_KEY =
         "siksha_ai_current_chat_v2";
 
+    /*
+     * IMPORTANT:
+     * Upload selection/usage is temporary only.
+     * Nothing related to upload usage is persisted.
+     */
+
+    const UPLOAD_STATE_KEYS = [
+        "siksha_ai_upload_usage",
+        "siksha_ai_upload_count",
+        "siksha_ai_uploaded_files",
+        "siksha_ai_uploads",
+        "siksha_ai_upload_limit",
+        "siksha_ai_file_usage",
+        "siksha_ai_file_count"
+    ];
+
     const MAX_CHATS = 500;
     const MAX_MESSAGES = 80;
 
-    // Render free instances can sleep.
-    // Give backend enough time to wake up.
     const REQUEST_TIMEOUT = 60000;
 
     // ========================================================
@@ -211,6 +232,133 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let toastTimer =
         null;
+
+    // ========================================================
+    // UPLOAD STATE RESET
+    // ========================================================
+
+    function resetUploadState() {
+
+        /*
+         * A file selection must NEVER survive as an
+         * application upload state.
+         */
+
+        selectedFile =
+            null;
+
+        // ----------------------------------------------------
+        // Reset actual browser file input
+        // ----------------------------------------------------
+
+        if (fileInput) {
+
+            try {
+
+                fileInput.value =
+                    "";
+
+            } catch {}
+
+            /*
+             * Remove any browser-side remembered value.
+             * The actual file itself cannot legitimately
+             * be restored by the browser after a reload.
+             */
+
+            fileInput.removeAttribute(
+                "value"
+            );
+
+            fileInput.setAttribute(
+                "value",
+                ""
+            );
+        }
+
+        // ----------------------------------------------------
+        // Reset preview text
+        // ----------------------------------------------------
+
+        if (filePreviewName) {
+
+            filePreviewName.textContent =
+                "";
+        }
+
+        if (filePreviewSize) {
+
+            filePreviewSize.textContent =
+                "";
+        }
+
+        // ----------------------------------------------------
+        // Reset all common preview states
+        // ----------------------------------------------------
+
+        if (filePreview) {
+
+            filePreview.classList.remove(
+                "visible",
+                "active",
+                "show",
+                "has-file",
+                "selected",
+                "open"
+            );
+
+            filePreview.removeAttribute(
+                "data-file"
+            );
+
+            filePreview.removeAttribute(
+                "data-selected"
+            );
+        }
+
+        // ----------------------------------------------------
+        // Remove old persisted upload keys
+        // ----------------------------------------------------
+
+        try {
+
+            UPLOAD_STATE_KEYS.forEach(
+                key => {
+
+                    localStorage.removeItem(
+                        key
+                    );
+
+                    sessionStorage.removeItem(
+                        key
+                    );
+                }
+            );
+
+        } catch (error) {
+
+            console.warn(
+                "Could not clean old upload state:",
+                error
+            );
+        }
+    }
+
+    /*
+     * Browser back/forward cache can restore DOM state.
+     * Reset temporary upload UI whenever the page is restored.
+     */
+
+    window.addEventListener(
+        "pageshow",
+        () => {
+
+            if (!isGenerating) {
+
+                resetUploadState();
+            }
+        }
+    );
 
     // ========================================================
     // REQUEST HELPER
@@ -456,6 +604,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function initialize() {
 
+        /*
+         * First thing:
+         * kill every temporary upload state.
+         */
+
+        resetUploadState();
+
         if (
             !currentChatId ||
             !chats.some(
@@ -494,7 +649,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setMode("normal");
 
         console.log(
-            "%cSiksha AI frontend loaded.",
+            "%cSiksha AI frontend V6 loaded.",
             "color:#a855f7;font-weight:bold;"
         );
 
@@ -512,14 +667,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const chat =
             getCurrentChat();
-
-        /*
-         * IMPORTANT:
-         * Do NOT use messages.innerHTML = "".
-         *
-         * That detaches welcomeScreen and
-         * typingIndicator from the DOM.
-         */
 
         const oldMessages =
             messages.querySelectorAll(
@@ -635,11 +782,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!typingIndicator) {
             return;
         }
-
-        /*
-         * insertBefore() requires the reference node
-         * to be an actual child of messages.
-         */
 
         if (
             typingIndicator.parentNode !==
@@ -913,6 +1055,13 @@ document.addEventListener("DOMContentLoaded", () => {
         currentChatId =
             id;
 
+        /*
+         * Chat switching should never carry a selected
+         * file from another conversation.
+         */
+
+        resetUploadState();
+
         localStorage.setItem(
             CURRENT_CHAT_KEY,
             id
@@ -1046,6 +1195,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             createChat();
 
+            resetUploadState();
+
             renderRecentChats();
 
             renderCurrentChat();
@@ -1086,6 +1237,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             chat.updatedAt =
                 Date.now();
+
+            resetUploadState();
 
             saveChats();
 
@@ -1195,6 +1348,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
             }
 
+            resetUploadState();
+
             saveChats();
 
             localStorage.setItem(
@@ -1284,8 +1439,17 @@ document.addEventListener("DOMContentLoaded", () => {
             "premium"
         ) {
 
+            /*
+             * Both classes are added so V6 works with
+             * either premium selector used by the CSS.
+             */
+
             document.body.classList.add(
                 "premium-active"
+            );
+
+            document.body.classList.add(
+                "premium-mode"
             );
 
             normalModeButton?.classList.remove(
@@ -1322,6 +1486,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             document.body.classList.remove(
                 "premium-active"
+            );
+
+            document.body.classList.remove(
+                "premium-mode"
             );
 
             premiumModeButton?.classList.remove(
@@ -1663,6 +1831,143 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================================
+    // AI CONTENT CLEANER — V6
+    // ========================================================
+
+    function cleanAIContent(
+        content
+    ) {
+
+        let value =
+            String(
+                content || ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 1. Remove Markdown IMAGE syntax pointing to logo.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /!\[[^\]]*\]\(\s*[^)]*logo(?:\.png)?[^)]*\)/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 2. Remove Markdown LINK syntax pointing to logo.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /\[[^\]]*\]\(\s*[^)]*logo(?:\.png)?[^)]*\)/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 3. Remove direct Siksha AI logo URL.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /https?:\/\/[^\s<>"')\]]*(?:assets\/)?logo(?:\.png)?[^\s<>"')\]]*/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 4. Remove relative logo paths.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /(?:https?:\/\/[^\s<>"')\]]*)?assets\/logo\.png(?:\?[^\s<>"')\]]*)?/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 5. Remove HTML img tags containing logo.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /<img\b[^>]*(?:logo\.png|assets\/logo)[^>]*>/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 6. Remove HTML anchor tags pointing to logo.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /<a\b[^>]*(?:logo\.png|assets\/logo)[^>]*>[\s\S]*?<\/a>/gi,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 7. Remove standalone logo labels/links.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /^\s*\[?\s*Siksha\s*AI\s*\]?\s*$/gim,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 8. Remove markdown image labels left behind.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /^\s*!\s*\[[^\]]*\]\s*$/gim,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 9. If a line contains only a logo reference,
+         * remove the entire line.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /^\s*.*(?:assets\/logo\.png|logo\.png).*$/gim,
+                ""
+            );
+
+        /*
+         * ----------------------------------------------------
+         * 10. Clean excessive blank lines.
+         * ----------------------------------------------------
+         */
+
+        value =
+            value.replace(
+                /\n{3,}/g,
+                "\n\n"
+            );
+
+        return value.trim();
+    }
+
+    // ========================================================
     // RENDER MESSAGE
     // ========================================================
 
@@ -1710,6 +2015,50 @@ document.addEventListener("DOMContentLoaded", () => {
             avatar.className =
                 "ai-avatar";
 
+            /*
+             * HARD SIZE LOCK.
+             * The logo displayed here is ONLY the UI avatar.
+             * It is NOT part of the AI response.
+             */
+
+            Object.assign(
+                avatar.style,
+                {
+                    width:
+                        "32px",
+
+                    height:
+                        "32px",
+
+                    minWidth:
+                        "32px",
+
+                    minHeight:
+                        "32px",
+
+                    maxWidth:
+                        "32px",
+
+                    maxHeight:
+                        "32px",
+
+                    overflow:
+                        "hidden",
+
+                    flex:
+                        "0 0 32px",
+
+                    display:
+                        "flex",
+
+                    alignItems:
+                        "center",
+
+                    justifyContent:
+                        "center"
+                }
+            );
+
             const img =
                 document.createElement(
                     "img"
@@ -1719,12 +2068,44 @@ document.addEventListener("DOMContentLoaded", () => {
                 "assets/logo.png";
 
             img.alt =
-                "Siksha AI";
+                "";
 
-            /*
-             * Prevent a broken logo from creating
-             * an ugly giant broken-image area.
-             */
+            img.setAttribute(
+                "aria-hidden",
+                "true"
+            );
+
+            Object.assign(
+                img.style,
+                {
+                    width:
+                        "32px",
+
+                    height:
+                        "32px",
+
+                    minWidth:
+                        "32px",
+
+                    minHeight:
+                        "32px",
+
+                    maxWidth:
+                        "32px",
+
+                    maxHeight:
+                        "32px",
+
+                    objectFit:
+                        "contain",
+
+                    display:
+                        "block",
+
+                    flex:
+                        "0 0 32px"
+                }
+            );
 
             img.onerror =
                 () => {
@@ -1769,9 +2150,18 @@ document.addEventListener("DOMContentLoaded", () => {
             response.className =
                 "ai-response";
 
+            /*
+             * Clean BEFORE Markdown/math rendering.
+             */
+
+            const cleanedContent =
+                cleanAIContent(
+                    content
+                );
+
             response.innerHTML =
                 formatAIResponse(
-                    content
+                    cleanedContent
                 );
 
             bubble.appendChild(
@@ -1819,11 +2209,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         ensureTypingIndicator();
 
-        /*
-         * Only use insertBefore if typingIndicator
-         * is actually inside messages.
-         */
-
         if (
             typingIndicator &&
             typingIndicator.parentNode ===
@@ -1867,14 +2252,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const chat =
                 getCurrentChat();
-
-            /*
-             * The current user message has already been
-             * stored locally before askAI().
-             *
-             * Therefore exclude the last message from
-             * history to prevent sending it twice.
-             */
 
             const previousMessages =
                 chat.messages
@@ -1958,9 +2335,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
             }
 
-            const answer =
+            let answer =
                 extractAnswer(
                     data
+                );
+
+            answer =
+                cleanAIContent(
+                    answer
                 );
 
             if (!answer) {
@@ -1994,12 +2376,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
-            /*
-             * Show a friendly error, but don't make the
-             * error itself look like a normal AI answer
-             * with the huge logo/avatar.
-             */
-
             showConnectionError(
                 error
             );
@@ -2023,12 +2399,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const message =
             error?.message ||
             "Please try again in a few seconds.";
-
-        /*
-         * Create a special system error element.
-         * This avoids storing connection errors inside
-         * conversation memory.
-         */
 
         const errorBox =
             document.createElement(
@@ -2294,6 +2664,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            /*
+             * Always clear the previous browser selection
+             * before opening the file picker.
+             */
+
+            if (fileInput) {
+
+                fileInput.value =
+                    "";
+            }
+
             fileInput?.click();
         }
     );
@@ -2306,6 +2687,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 fileInput.files?.[0];
 
             if (!file) {
+
+                resetUploadState();
+
                 return;
             }
 
@@ -2321,6 +2705,15 @@ document.addEventListener("DOMContentLoaded", () => {
     function showFilePreview(
         file
     ) {
+
+        if (
+            !file
+        ) {
+
+            resetUploadState();
+
+            return;
+        }
 
         if (
             filePreviewName
@@ -2340,9 +2733,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
         }
 
-        filePreview?.classList.add(
-            "visible"
-        );
+        if (filePreview) {
+
+            filePreview.classList.remove(
+                "active",
+                "show",
+                "has-file",
+                "selected",
+                "open"
+            );
+
+            filePreview.classList.add(
+                "visible"
+            );
+
+            filePreview.setAttribute(
+                "data-selected",
+                "true"
+            );
+        }
     }
 
     removeFileButton?.addEventListener(
@@ -2362,13 +2771,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (fileInput) {
 
-            fileInput.value =
+            try {
+
+                fileInput.value =
+                    "";
+
+            } catch {}
+
+            fileInput.removeAttribute(
+                "value"
+            );
+
+            fileInput.setAttribute(
+                "value",
+                ""
+            );
+        }
+
+        if (filePreview) {
+
+            filePreview.classList.remove(
+                "visible",
+                "active",
+                "show",
+                "has-file",
+                "selected",
+                "open"
+            );
+
+            filePreview.removeAttribute(
+                "data-file"
+            );
+
+            filePreview.removeAttribute(
+                "data-selected"
+            );
+        }
+
+        if (filePreviewName) {
+
+            filePreviewName.textContent =
                 "";
         }
 
-        filePreview?.classList.remove(
-            "visible"
-        );
+        if (filePreviewSize) {
+
+            filePreviewSize.textContent =
+                "";
+        }
     }
 
     function formatFileSize(
@@ -2433,6 +2883,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 currentMode
             );
 
+            /*
+             * Remove UI selection immediately after the
+             * file has been copied into FormData.
+             */
+
             removeSelectedFile();
 
             const response =
@@ -2466,9 +2921,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
             }
 
-            const answer =
+            let answer =
                 extractAnswer(
                     data
+                );
+
+            answer =
+                cleanAIContent(
+                    answer
                 );
 
             if (!answer) {
@@ -2518,6 +2978,12 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
         } finally {
+
+            /*
+             * Absolute cleanup after every upload attempt.
+             */
+
+            removeSelectedFile();
 
             setGenerating(
                 false
@@ -2729,7 +3195,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const cleanText =
                 stripMarkdownForSpeech(
-                    text
+                    cleanAIContent(
+                        text
+                    )
                 );
 
             if (!cleanText) {
@@ -2972,6 +3440,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             )
             .replace(
+                /!\[[^\]]*\]\([^)]*\)/g,
+                ""
+            )
+            .replace(
+                /\[[^\]]*\]\([^)]*\)/g,
+                ""
+            )
+            .replace(
+                /https?:\/\/\S+/gi,
+                ""
+            )
+            .replace(
                 /[#*_>`]/g,
                 ""
             )
@@ -2999,7 +3479,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         let value =
-            String(text)
+            cleanAIContent(
+                text
+            )
                 .replace(
                     /\r\n/g,
                     "\n"
@@ -3852,6 +4334,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             createChat();
 
+            resetUploadState();
+
             renderRecentChats();
 
             renderCurrentChat();
@@ -3895,7 +4379,13 @@ document.addEventListener("DOMContentLoaded", () => {
             stopCurrentAudio();
         },
 
-        backend: API_BASE
+        resetUpload: () => {
+
+            resetUploadState();
+        },
+
+        backend:
+            API_BASE
     };
 
 });
