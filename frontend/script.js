@@ -1,18 +1,26 @@
+
 // ============================================================
-// SIKSHA AI — FINAL FRONTEND ENGINE V6
+// SIKSHA AI — FINAL FRONTEND ENGINE V7
 // CHAT + MEMORY + PREMIUM + HINDI + ENGLISH + HINGLISH
-// VOICE INPUT + GEMINI TTS + FILE UPLOAD
+// VOICE INPUT + GEMINI TTS + BROWSER VOICE FALLBACK
+// FILE UPLOAD
 // RECENT CHATS + SEARCH + DELETE
 // MATH RENDERING + MARKDOWN + TYPING ANIMATION
 // RENDER DEPLOYMENT READY
 //
-// V6 FIXES
+// V7 RESILIENCE FIXES
+// - PRESERVES ALL V6 FEATURES
+// - BACKEND FALLBACK RESPONSES SUPPORTED
+// - CONTROLLED CHAT RETRY
+// - LOCAL EMERGENCY ANSWER IF SERVER FAILS
+// - GEMINI TTS -> BROWSER SPEECH FALLBACK
+// - HINDI / ENGLISH / HINGLISH VOICE SUPPORT
 // - AI RESPONSE LOGO COMPLETELY BLOCKED
-// - UI AI AVATAR FIXED TO 32x32
+// - UI AI AVATAR LOCKED TO 32x32
 // - TEMPORARY UPLOAD STATE NEVER PERSISTS
-// - UPLOAD PREVIEW RESET ON PAGE START / PAGE RESTORE
 // - PREMIUM MODE CLASS COMPATIBILITY
-// - EXTRA LOGO / IMAGE / URL SANITIZATION
+// - SAFE TYPING INDICATOR INSERTION
+// - FILE FAILURE RECOVERY
 // ============================================================
 
 "use strict";
@@ -45,8 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "siksha_ai_current_chat_v2";
 
     /*
-     * IMPORTANT:
-     * Upload selection/usage is temporary only.
+     * Upload state is temporary only.
      * Nothing related to upload usage is persisted.
      */
 
@@ -63,7 +70,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const MAX_CHATS = 500;
     const MAX_MESSAGES = 80;
 
+    /*
+     * Normal request timeout.
+     * Render free instances may need time to wake up.
+     */
     const REQUEST_TIMEOUT = 60000;
+
+    /*
+     * Only one controlled retry.
+     * This prevents retry storms.
+     */
+    const CHAT_RETRY_DELAY = 1800;
 
     // ========================================================
     // DOM HELPER
@@ -233,23 +250,17 @@ document.addEventListener("DOMContentLoaded", () => {
     let toastTimer =
         null;
 
+    let browserSpeechSupported =
+        "speechSynthesis" in window;
+
     // ========================================================
     // UPLOAD STATE RESET
     // ========================================================
 
     function resetUploadState() {
 
-        /*
-         * A file selection must NEVER survive as an
-         * application upload state.
-         */
-
         selectedFile =
             null;
-
-        // ----------------------------------------------------
-        // Reset actual browser file input
-        // ----------------------------------------------------
 
         if (fileInput) {
 
@@ -260,12 +271,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             } catch {}
 
-            /*
-             * Remove any browser-side remembered value.
-             * The actual file itself cannot legitimately
-             * be restored by the browser after a reload.
-             */
-
             fileInput.removeAttribute(
                 "value"
             );
@@ -275,10 +280,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
         }
-
-        // ----------------------------------------------------
-        // Reset preview text
-        // ----------------------------------------------------
 
         if (filePreviewName) {
 
@@ -291,10 +292,6 @@ document.addEventListener("DOMContentLoaded", () => {
             filePreviewSize.textContent =
                 "";
         }
-
-        // ----------------------------------------------------
-        // Reset all common preview states
-        // ----------------------------------------------------
 
         if (filePreview) {
 
@@ -315,10 +312,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 "data-selected"
             );
         }
-
-        // ----------------------------------------------------
-        // Remove old persisted upload keys
-        // ----------------------------------------------------
 
         try {
 
@@ -343,11 +336,6 @@ document.addEventListener("DOMContentLoaded", () => {
             );
         }
     }
-
-    /*
-     * Browser back/forward cache can restore DOM state.
-     * Reset temporary upload UI whenever the page is restored.
-     */
 
     window.addEventListener(
         "pageshow",
@@ -399,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 throw new Error(
-                    "Siksha AI is taking too long to respond. The server may be waking up. Please try again."
+                    "Siksha AI is taking too long to respond. The server may be waking up."
                 );
             }
 
@@ -408,18 +396,29 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 throw new Error(
-                    "No internet connection. Please check your internet and try again."
+                    "No internet connection. Please check your internet."
                 );
             }
 
             throw new Error(
-                "Could not reach the Siksha AI server. Please try again in a few seconds."
+                "Could not reach the Siksha AI server."
             );
 
         } finally {
 
             clearTimeout(timer);
         }
+    }
+
+    async function wait(ms) {
+
+        return new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    ms
+                )
+        );
     }
 
     // ========================================================
@@ -604,11 +603,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function initialize() {
 
-        /*
-         * First thing:
-         * kill every temporary upload state.
-         */
-
         resetUploadState();
 
         if (
@@ -646,10 +640,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         autoResizeTextarea();
 
-        setMode("normal");
+        setMode(
+            "normal"
+        );
 
         console.log(
-            "%cSiksha AI frontend V6 loaded.",
+            "%cSiksha AI frontend V7 loaded.",
             "color:#a855f7;font-weight:bold;"
         );
 
@@ -727,12 +723,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     normalizeRole(
                         message.role
                     ),
-
                     String(
                         message.content ||
                         ""
                     ),
-
                     false
                 );
             }
@@ -755,7 +749,8 @@ document.addEventListener("DOMContentLoaded", () => {
             ).toLowerCase();
 
         if (
-            value === "user"
+            value ===
+            "user"
         ) {
 
             return "user";
@@ -1034,7 +1029,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (
             !chats.some(
                 chat =>
-                    chat.id === id
+                    chat.id ===
+                    id
             )
         ) {
 
@@ -1054,11 +1050,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         currentChatId =
             id;
-
-        /*
-         * Chat switching should never carry a selected
-         * file from another conversation.
-         */
 
         resetUploadState();
 
@@ -1438,11 +1429,6 @@ document.addEventListener("DOMContentLoaded", () => {
             currentMode ===
             "premium"
         ) {
-
-            /*
-             * Both classes are added so V6 works with
-             * either premium selector used by the CSS.
-             */
 
             document.body.classList.add(
                 "premium-active"
@@ -1831,7 +1817,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================================
-    // AI CONTENT CLEANER — V6
+    // AI CONTENT CLEANER
     // ========================================================
 
     function cleanAIContent(
@@ -1843,23 +1829,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 content || ""
             );
 
-        /*
-         * ----------------------------------------------------
-         * 1. Remove Markdown IMAGE syntax pointing to logo.
-         * ----------------------------------------------------
-         */
-
         value =
             value.replace(
                 /!\[[^\]]*\]\(\s*[^)]*logo(?:\.png)?[^)]*\)/gi,
                 ""
             );
-
-        /*
-         * ----------------------------------------------------
-         * 2. Remove Markdown LINK syntax pointing to logo.
-         * ----------------------------------------------------
-         */
 
         value =
             value.replace(
@@ -1867,23 +1841,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
 
-        /*
-         * ----------------------------------------------------
-         * 3. Remove direct Siksha AI logo URL.
-         * ----------------------------------------------------
-         */
-
         value =
             value.replace(
                 /https?:\/\/[^\s<>"')\]]*(?:assets\/)?logo(?:\.png)?[^\s<>"')\]]*/gi,
                 ""
             );
-
-        /*
-         * ----------------------------------------------------
-         * 4. Remove relative logo paths.
-         * ----------------------------------------------------
-         */
 
         value =
             value.replace(
@@ -1891,23 +1853,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
 
-        /*
-         * ----------------------------------------------------
-         * 5. Remove HTML img tags containing logo.
-         * ----------------------------------------------------
-         */
-
         value =
             value.replace(
                 /<img\b[^>]*(?:logo\.png|assets\/logo)[^>]*>/gi,
                 ""
             );
-
-        /*
-         * ----------------------------------------------------
-         * 6. Remove HTML anchor tags pointing to logo.
-         * ----------------------------------------------------
-         */
 
         value =
             value.replace(
@@ -1915,23 +1865,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
 
-        /*
-         * ----------------------------------------------------
-         * 7. Remove standalone logo labels/links.
-         * ----------------------------------------------------
-         */
-
         value =
             value.replace(
                 /^\s*\[?\s*Siksha\s*AI\s*\]?\s*$/gim,
                 ""
             );
-
-        /*
-         * ----------------------------------------------------
-         * 8. Remove markdown image labels left behind.
-         * ----------------------------------------------------
-         */
 
         value =
             value.replace(
@@ -1939,24 +1877,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ""
             );
 
-        /*
-         * ----------------------------------------------------
-         * 9. If a line contains only a logo reference,
-         * remove the entire line.
-         * ----------------------------------------------------
-         */
-
         value =
             value.replace(
                 /^\s*.*(?:assets\/logo\.png|logo\.png).*$/gim,
                 ""
             );
-
-        /*
-         * ----------------------------------------------------
-         * 10. Clean excessive blank lines.
-         * ----------------------------------------------------
-         */
 
         value =
             value.replace(
@@ -2014,12 +1939,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             avatar.className =
                 "ai-avatar";
-
-            /*
-             * HARD SIZE LOCK.
-             * The logo displayed here is ONLY the UI avatar.
-             * It is NOT part of the AI response.
-             */
 
             Object.assign(
                 avatar.style,
@@ -2150,10 +2069,6 @@ document.addEventListener("DOMContentLoaded", () => {
             response.className =
                 "ai-response";
 
-            /*
-             * Clean BEFORE Markdown/math rendering.
-             */
-
             const cleanedContent =
                 cleanAIContent(
                     content
@@ -2215,10 +2130,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 messages
         ) {
 
-            messages.insertBefore(
-                wrapper,
-                typingIndicator
-            );
+            try {
+
+                messages.insertBefore(
+                    wrapper,
+                    typingIndicator
+                );
+
+            } catch {
+
+                messages.appendChild(
+                    wrapper
+                );
+            }
 
         } else {
 
@@ -2289,72 +2213,210 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 );
 
-            const response =
-                await fetchWithTimeout(
-                    API_URL,
-                    {
-                        method:
-                            "POST",
+            const payload = {
 
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
+                message:
+                    userText,
 
-                        body:
-                            JSON.stringify({
+                mode:
+                    currentMode,
 
-                                message:
-                                    userText,
+                history:
+                    history
+            };
 
-                                mode:
-                                    currentMode,
+            let response =
+                null;
 
-                                history:
-                                    history
-                            })
+            let data =
+                null;
+
+            let lastError =
+                null;
+
+            // ------------------------------------------------
+            // ATTEMPT 1
+            // ------------------------------------------------
+
+            try {
+
+                response =
+                    await fetchWithTimeout(
+                        API_URL,
+                        {
+                            method:
+                                "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body:
+                                JSON.stringify(
+                                    payload
+                                )
+                        }
+                    );
+
+                data =
+                    await parseResponse(
+                        response
+                    );
+
+                /*
+                 * Backend V7 may return HTTP 200
+                 * even when Gemini itself is unavailable.
+                 */
+
+                if (
+                    response.ok
+                ) {
+
+                    const answer =
+                        cleanAIContent(
+                            extractAnswer(
+                                data
+                            )
+                        );
+
+                    if (answer) {
+
+                        hideTyping();
+
+                        addMessage(
+                            "ai",
+                            answer
+                        );
+
+                        if (
+                            currentMode ===
+                            "premium"
+                        ) {
+
+                            speakAI(
+                                answer
+                            );
+                        }
+
+                        return;
                     }
-                );
+                }
 
-            const data =
-                await parseResponse(
-                    response
+                lastError =
+                    new Error(
+                        getServerError(
+                            data,
+                            response.status
+                        )
+                    );
+
+            } catch (error) {
+
+                lastError =
+                    error;
+            }
+
+            // ------------------------------------------------
+            // CONTROLLED RETRY
+            // ------------------------------------------------
+
+            console.warn(
+                "Siksha AI first request failed. Controlled retry..."
+            );
+
+            await wait(
+                CHAT_RETRY_DELAY
+            );
+
+            try {
+
+                response =
+                    await fetchWithTimeout(
+                        API_URL,
+                        {
+                            method:
+                                "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body:
+                                JSON.stringify(
+                                    payload
+                                )
+                        }
+                    );
+
+                data =
+                    await parseResponse(
+                        response
+                    );
+
+                if (
+                    response.ok
+                ) {
+
+                    const answer =
+                        cleanAIContent(
+                            extractAnswer(
+                                data
+                            )
+                        );
+
+                    if (answer) {
+
+                        hideTyping();
+
+                        addMessage(
+                            "ai",
+                            answer
+                        );
+
+                        if (
+                            currentMode ===
+                            "premium"
+                        ) {
+
+                            speakAI(
+                                answer
+                            );
+                        }
+
+                        return;
+                    }
+                }
+
+                lastError =
+                    new Error(
+                        getServerError(
+                            data,
+                            response.status
+                        )
+                    );
+
+            } catch (error) {
+
+                lastError =
+                    error;
+            }
+
+            // ------------------------------------------------
+            // LOCAL EMERGENCY ENGINE
+            // ------------------------------------------------
+
+            const emergencyAnswer =
+                getLocalEmergencyAnswer(
+                    userText
                 );
 
             hideTyping();
 
-            if (
-                !response.ok
-            ) {
-
-                throw new Error(
-                    getServerError(
-                        data,
-                        response.status
-                    )
-                );
-            }
-
-            let answer =
-                extractAnswer(
-                    data
-                );
-
-            answer =
-                cleanAIContent(
-                    answer
-                );
-
-            if (!answer) {
-
-                throw new Error(
-                    "Siksha AI returned an empty response."
-                );
-            }
-
             addMessage(
                 "ai",
-                answer
+                emergencyAnswer
             );
 
             if (
@@ -2363,9 +2425,14 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 speakAI(
-                    answer
+                    emergencyAnswer
                 );
             }
+
+            console.warn(
+                "Siksha AI used local emergency response:",
+                lastError
+            );
 
         } catch (error) {
 
@@ -2376,9 +2443,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
-            showConnectionError(
-                error
+            const emergencyAnswer =
+                getLocalEmergencyAnswer(
+                    userText
+                );
+
+            addMessage(
+                "ai",
+                emergencyAnswer
             );
+
+            if (
+                currentMode ===
+                "premium"
+            ) {
+
+                speakAI(
+                    emergencyAnswer
+                );
+            }
 
         } finally {
 
@@ -2386,6 +2469,357 @@ document.addEventListener("DOMContentLoaded", () => {
                 false
             );
         }
+    }
+
+    // ========================================================
+    // LOCAL EMERGENCY ANSWER ENGINE
+    // ========================================================
+
+    function getLocalEmergencyAnswer(
+        question
+    ) {
+
+        const q =
+            String(
+                question || ""
+            )
+                .trim()
+                .toLowerCase();
+
+        // ----------------------------------------------------
+        // CREATOR
+        // ----------------------------------------------------
+
+        if (
+            q.includes("who created you") ||
+            q.includes("who made you") ||
+            q.includes("your creator") ||
+            q.includes("tumhe kisne banaya") ||
+            q.includes("tumko kisne banaya") ||
+            q.includes("kisne banaya")
+        ) {
+
+            return "I was created by **ANSH RAJ**.";
+        }
+
+        // ----------------------------------------------------
+        // GREETING
+        // ----------------------------------------------------
+
+        if (
+            /^(hi|hello|hey|hii|namaste|namaskar)\b/i.test(
+                q
+            )
+        ) {
+
+            return "Hey! 👋 I am Siksha AI. Ask me any study question and I will help you.";
+        }
+
+        // ----------------------------------------------------
+        // NEWTON THIRD LAW
+        // ----------------------------------------------------
+
+        if (
+            q.includes("newton") &&
+            q.includes("third law")
+        ) {
+
+            return `### Newton's Third Law
+
+For every action, there is an equal and opposite reaction.
+
+In simple Hinglish:
+
+Agar object A, object B par force lagata hai, toh object B bhi object A par **same magnitude ka opposite direction mein force** lagata hai.
+
+**Example:**  
+Jab hum wall ko push karte hain, wall bhi hume opposite direction mein push karti hai.
+
+The two forces act on **different objects**.`;
+        }
+
+        // ----------------------------------------------------
+        // NEWTON FIRST LAW
+        // ----------------------------------------------------
+
+        if (
+            q.includes("newton") &&
+            q.includes("first law")
+        ) {
+
+            return `### Newton's First Law
+
+An object remains at rest or continues moving with uniform velocity in a straight line unless an external unbalanced force acts on it.
+
+Simple Hinglish:
+
+Object apni state change nahi karega jab tak koi **unbalanced external force** uspar act na kare.
+
+Isse **law of inertia** bhi kehte hain.`;
+        }
+
+        // ----------------------------------------------------
+        // NEWTON SECOND LAW
+        // ----------------------------------------------------
+
+        if (
+            q.includes("newton") &&
+            q.includes("second law")
+        ) {
+
+            return `### Newton's Second Law
+
+Newton's Second Law tells us that force depends on mass and acceleration.
+
+\\[
+F = ma
+\\]
+
+Yaani:
+
+**Force = mass × acceleration**
+
+Agar same mass par acceleration badhega, toh force bhi badhega.`;
+        }
+
+        // ----------------------------------------------------
+        // FORCE
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is force") ||
+            q.includes("define force") ||
+            q.includes("force kya")
+        ) {
+
+            return `### Force
+
+Force is a push or pull that can change the state of motion, direction, or shape of an object.
+
+SI unit: **Newton (N)**.
+
+Example: Door ko push karna is applying force.`;
+        }
+
+        // ----------------------------------------------------
+        // GRAVITY
+        // ----------------------------------------------------
+
+        if (
+            q.includes("gravity") ||
+            q.includes("gravitational force")
+        ) {
+
+            return `### Gravity
+
+Gravity is the force by which the Earth attracts objects towards its centre.
+
+Earth ke paas kisi object ka weight:
+
+\\[
+W = mg
+\\]
+
+where **m** is mass and **g** is acceleration due to gravity.`;
+        }
+
+        // ----------------------------------------------------
+        // SPEED
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is speed") ||
+            q.includes("define speed")
+        ) {
+
+            return `### Speed
+
+Speed is the distance travelled by an object per unit time.
+
+\\[
+Speed = \\frac{Distance}{Time}
+\\]
+
+SI unit: **m/s**.`;
+        }
+
+        // ----------------------------------------------------
+        // VELOCITY
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is velocity") ||
+            q.includes("define velocity")
+        ) {
+
+            return `### Velocity
+
+Velocity is the displacement travelled by an object per unit time.
+
+\\[
+Velocity = \\frac{Displacement}{Time}
+\\]
+
+Velocity is a **vector quantity**, so it has both magnitude and direction.`;
+        }
+
+        // ----------------------------------------------------
+        // WORK
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is work") ||
+            q.includes("define work")
+        ) {
+
+            return `### Work
+
+In physics, work is done when a force causes displacement of an object in the direction of the force.
+
+\\[
+W = Fs
+\\]
+
+where **F** is force and **s** is displacement.
+
+SI unit: **Joule (J)**.`;
+        }
+
+        // ----------------------------------------------------
+        // ENERGY
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is energy") ||
+            q.includes("define energy")
+        ) {
+
+            return `### Energy
+
+Energy is the capacity of a body to do work.
+
+SI unit: **Joule (J)**.
+
+Common forms include kinetic energy, potential energy, heat, light and electrical energy.`;
+        }
+
+        // ----------------------------------------------------
+        // CELL
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is cell") ||
+            q.includes("define cell") ||
+            q.includes("cell kya hai")
+        ) {
+
+            return `### Cell
+
+The cell is the **basic structural and functional unit of life**.
+
+All living organisms are made up of one or more cells.
+
+Examples of cell organelles include the nucleus, mitochondria and ribosomes.`;
+        }
+
+        // ----------------------------------------------------
+        // PHOTOSYNTHESIS
+        // ----------------------------------------------------
+
+        if (
+            q.includes("photosynthesis")
+        ) {
+
+            return `### Photosynthesis
+
+Photosynthesis is the process by which green plants prepare food using **carbon dioxide, water, sunlight and chlorophyll**.
+
+The simplified equation is:
+
+\\[
+6CO_2 + 6H_2O \\rightarrow C_6H_{12}O_6 + 6O_2
+\\]
+
+The food produced is glucose.`;
+        }
+
+        // ----------------------------------------------------
+        // ACID
+        // ----------------------------------------------------
+
+        if (
+            q.includes("what is acid") ||
+            q.includes("define acid")
+        ) {
+
+            return `### Acid
+
+An acid is a substance that produces hydrogen ions \\(H^+\\) in aqueous solution.
+
+Examples:
+
+- Hydrochloric acid — HCl
+- Sulphuric acid — H₂SO₄
+- Nitric acid — HNO₃
+
+Acids generally have a pH below 7.`;
+        }
+
+        // ----------------------------------------------------
+        // PRIME NUMBER
+        // ----------------------------------------------------
+
+        if (
+            q.includes("prime number") ||
+            q.includes("prime numbers")
+        ) {
+
+            return `### Prime Number
+
+A prime number is a natural number greater than 1 that has exactly **two positive factors**:
+
+1. 1
+2. The number itself
+
+Examples: **2, 3, 5, 7, 11, 13**.
+
+Note: **2 is the only even prime number.**`;
+        }
+
+        // ----------------------------------------------------
+        // GENERIC BACKUP
+        // ----------------------------------------------------
+
+        return `### Siksha AI Backup Mode
+
+I received your question:
+
+> ${escapeMarkdownForAnswer(
+            String(question || "")
+        )}
+
+My main AI engine is temporarily unavailable, so I have switched to **Backup Mode**.
+
+I can still handle several common school concepts locally, but for a detailed or completely new question, please try again after a few seconds so the full AI engine can answer it.
+
+Your chat and previous messages are still safe.`;
+    }
+
+    function escapeMarkdownForAnswer(
+        text
+    ) {
+
+        return String(
+            text || ""
+        )
+            .replace(
+                /\\/g,
+                "\\\\"
+            )
+            .replace(
+                /([*_`])/g,
+                "\\$1"
+            );
     }
 
     // ========================================================
@@ -2433,11 +2867,11 @@ document.addEventListener("DOMContentLoaded", () => {
             "ai-response";
 
         response.innerHTML = `
-            <strong>⚠️ Siksha AI connection error</strong>
+            <strong>⚠️ Siksha AI connection issue</strong>
             <br><br>
             ${escapeHTML(message)}
             <br><br>
-            Please try again in a few seconds.
+            Siksha AI is switching to backup mode.
         `;
 
         bubble.appendChild(
@@ -2460,10 +2894,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 messages
         ) {
 
-            messages.insertBefore(
-                errorBox,
-                typingIndicator
-            );
+            try {
+
+                messages.insertBefore(
+                    errorBox,
+                    typingIndicator
+                );
+
+            } catch {
+
+                messages.appendChild(
+                    errorBox
+                );
+            }
 
         } else {
 
@@ -2477,7 +2920,7 @@ document.addEventListener("DOMContentLoaded", () => {
         scrollToBottom();
 
         showToast(
-            "Could not connect to Siksha AI"
+            "Backup mode active"
         );
     }
 
@@ -2515,14 +2958,14 @@ document.addEventListener("DOMContentLoaded", () => {
             status === 429
         ) {
 
-            return "Too many requests. Please wait a moment and try again.";
+            return "Too many requests. Please wait a moment.";
         }
 
         if (
             status >= 500
         ) {
 
-            return "The Siksha AI server encountered an error. Please try again.";
+            return "The Siksha AI server is temporarily busy.";
         }
 
         return `Server returned HTTP ${status}.`;
@@ -2566,7 +3009,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!text) {
 
             return {
-                text: ""
+                text:
+                    ""
             };
         }
 
@@ -2600,6 +3044,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             return data;
         }
+
+        /*
+         * Backend V7 commonly returns:
+         * {
+         *   success: true,
+         *   answer: "..."
+         * }
+         */
 
         return (
             data.answer ||
@@ -2640,6 +3092,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 isGenerating;
         }
 
+        /*
+         * Talk button remains available when AI is not
+         * generating. This keeps voice interaction usable.
+         */
+
         if (talkButton) {
 
             talkButton.disabled =
@@ -2663,11 +3120,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 return;
             }
-
-            /*
-             * Always clear the previous browser selection
-             * before opening the file picker.
-             */
 
             if (fileInput) {
 
@@ -2706,9 +3158,7 @@ document.addEventListener("DOMContentLoaded", () => {
         file
     ) {
 
-        if (
-            !file
-        ) {
+        if (!file) {
 
             resetUploadState();
 
@@ -2838,7 +3288,8 @@ document.addEventListener("DOMContentLoaded", () => {
         ) {
 
             return `${(
-                bytes / 1024
+                bytes /
+                1024
             ).toFixed(1)} KB`;
         }
 
@@ -2883,60 +3334,211 @@ document.addEventListener("DOMContentLoaded", () => {
                 currentMode
             );
 
-            /*
-             * Remove UI selection immediately after the
-             * file has been copied into FormData.
-             */
-
             removeSelectedFile();
 
-            const response =
-                await fetchWithTimeout(
-                    FILE_API_URL,
-                    {
-                        method:
-                            "POST",
+            let response =
+                null;
 
-                        body:
-                            formData
+            let data =
+                null;
+
+            let lastError =
+                null;
+
+            // ------------------------------------------------
+            // FILE ATTEMPT 1
+            // ------------------------------------------------
+
+            try {
+
+                response =
+                    await fetchWithTimeout(
+                        FILE_API_URL,
+                        {
+                            method:
+                                "POST",
+
+                            body:
+                                formData
+                        }
+                    );
+
+                data =
+                    await parseResponse(
+                        response
+                    );
+
+                if (
+                    response.ok
+                ) {
+
+                    const answer =
+                        cleanAIContent(
+                            extractAnswer(
+                                data
+                            )
+                        );
+
+                    if (answer) {
+
+                        hideTyping();
+
+                        addMessage(
+                            "user",
+                            question
+                                ? `${question}\n\n📎 ${fileName}`
+                                : `📎 ${fileName}`
+                        );
+
+                        addMessage(
+                            "ai",
+                            answer
+                        );
+
+                        if (
+                            currentMode ===
+                            "premium"
+                        ) {
+
+                            speakAI(
+                                answer
+                            );
+                        }
+
+                        return;
                     }
+                }
+
+                lastError =
+                    new Error(
+                        getServerError(
+                            data,
+                            response.status
+                        )
+                    );
+
+            } catch (error) {
+
+                lastError =
+                    error;
+            }
+
+            // ------------------------------------------------
+            // FILE RETRY
+            // ------------------------------------------------
+
+            await wait(
+                CHAT_RETRY_DELAY
+            );
+
+            /*
+             * File objects can still be reused in FormData,
+             * so we create a fresh FormData.
+             */
+
+            try {
+
+                const retryFormData =
+                    new FormData();
+
+                retryFormData.append(
+                    "file",
+                    file
                 );
 
-            const data =
-                await parseResponse(
-                    response
+                retryFormData.append(
+                    "message",
+                    question ||
+                    "Analyze this file and explain the important content clearly."
                 );
+
+                retryFormData.append(
+                    "mode",
+                    currentMode
+                );
+
+                response =
+                    await fetchWithTimeout(
+                        FILE_API_URL,
+                        {
+                            method:
+                                "POST",
+
+                            body:
+                                retryFormData
+                        }
+                    );
+
+                data =
+                    await parseResponse(
+                        response
+                    );
+
+                if (
+                    response.ok
+                ) {
+
+                    const answer =
+                        cleanAIContent(
+                            extractAnswer(
+                                data
+                            )
+                        );
+
+                    if (answer) {
+
+                        hideTyping();
+
+                        addMessage(
+                            "user",
+                            question
+                                ? `${question}\n\n📎 ${fileName}`
+                                : `📎 ${fileName}`
+                        );
+
+                        addMessage(
+                            "ai",
+                            answer
+                        );
+
+                        if (
+                            currentMode ===
+                            "premium"
+                        ) {
+
+                            speakAI(
+                                answer
+                            );
+                        }
+
+                        return;
+                    }
+                }
+
+                lastError =
+                    new Error(
+                        getServerError(
+                            data,
+                            response.status
+                        )
+                    );
+
+            } catch (error) {
+
+                lastError =
+                    error;
+            }
 
             hideTyping();
 
-            if (
-                !response.ok
-            ) {
+            const backup =
+                `I received **${escapeMarkdownForAnswer(
+                    fileName
+                )}**, but the file-analysis AI engine is temporarily unavailable.
 
-                throw new Error(
-                    getServerError(
-                        data,
-                        response.status
-                    )
-                );
-            }
+Please try the file again in a few seconds.
 
-            let answer =
-                extractAnswer(
-                    data
-                );
-
-            answer =
-                cleanAIContent(
-                    answer
-                );
-
-            if (!answer) {
-
-                throw new Error(
-                    "No answer was returned for the file."
-                );
-            }
+Your selected file has been safely cleared from the temporary upload state.`;
 
             addMessage(
                 "user",
@@ -2947,18 +3549,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
             addMessage(
                 "ai",
-                answer
+                backup
             );
 
-            if (
-                currentMode ===
-                "premium"
-            ) {
-
-                speakAI(
-                    answer
-                );
-            }
+            console.warn(
+                "File analysis fallback:",
+                lastError
+            );
 
         } catch (error) {
 
@@ -2969,19 +3566,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
             hideTyping();
 
-            showConnectionError(
-                error
+            addMessage(
+                "user",
+                question
+                    ? `${question}\n\n📎 ${fileName}`
+                    : `📎 ${fileName}`
+            );
+
+            addMessage(
+                "ai",
+                `I received **${escapeMarkdownForAnswer(
+                    fileName
+                )}**, but I could not process it right now. Please try again shortly.`
             );
 
             showToast(
-                "Could not process the file"
+                "File backup mode active"
             );
 
         } finally {
-
-            /*
-             * Absolute cleanup after every upload attempt.
-             */
 
             removeSelectedFile();
 
@@ -3132,6 +3735,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            /*
+             * Detect likely language from the current
+             * input. Default remains Indian English.
+             */
+
+            recognition.lang =
+                detectSpeechLanguage(
+                    messageInput?.value ||
+                    ""
+                );
+
             try {
 
                 recognition.start();
@@ -3155,6 +3769,67 @@ document.addEventListener("DOMContentLoaded", () => {
             stopListening();
         }
     );
+
+    function detectSpeechLanguage(
+        text
+    ) {
+
+        const value =
+            String(
+                text || ""
+            ).toLowerCase();
+
+        /*
+         * Common Hindi/Hinglish indicators.
+         */
+
+        const hindiPattern =
+            /[\u0900-\u097F]/;
+
+        const hinglishWords = [
+            "kya",
+            "kaise",
+            "kyun",
+            "kyon",
+            "hai",
+            "hain",
+            "mera",
+            "meri",
+            "mere",
+            "tum",
+            "aap",
+            "mujhe",
+            "batao",
+            "samjhao",
+            "karo",
+            "karna",
+            "wala",
+            "wali",
+            "school",
+            "padhai"
+        ];
+
+        if (
+            hindiPattern.test(
+                value
+            )
+        ) {
+
+            return "hi-IN";
+        }
+
+        const found =
+            hinglishWords.some(
+                word =>
+                    value.includes(
+                        word
+                    )
+            );
+
+        return found
+            ? "hi-IN"
+            : "en-IN";
+    }
 
     function stopListening() {
 
@@ -3182,7 +3857,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================================
-    // GEMINI TTS
+    // GEMINI TTS + BROWSER FALLBACK
     // ========================================================
 
     async function speakAI(
@@ -3192,6 +3867,8 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
 
             stopCurrentAudio();
+
+            stopBrowserSpeech();
 
             const cleanText =
                 stripMarkdownForSpeech(
@@ -3234,7 +3911,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
 
                 throw new Error(
-                    "TTS request failed"
+                    "Gemini TTS request failed"
                 );
             }
 
@@ -3268,7 +3945,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 data.data;
 
             if (!audioData) {
-                return;
+
+                throw new Error(
+                    "No audio returned"
+                );
             }
 
             const blob =
@@ -3284,8 +3964,18 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
 
             console.warn(
-                "TTS unavailable:",
+                "Gemini TTS unavailable. Using browser voice.",
                 error
+            );
+
+            /*
+             * IMPORTANT:
+             * Premium Talk should still speak even if
+             * Gemini TTS is temporarily unavailable.
+             */
+
+            browserSpeak(
+                text
             );
         }
     }
@@ -3324,6 +4014,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 currentAudio =
                     null;
+
+                /*
+                 * Audio decoding/playback failure:
+                 * use browser voice as second fallback.
+                 */
+
+                browserSpeak(
+                    blobToSpeechFallbackText(
+                        blob
+                    )
+                );
             };
 
         currentAudio
@@ -3335,8 +4036,135 @@ document.addEventListener("DOMContentLoaded", () => {
                         "Browser blocked audio playback:",
                         error
                     );
+
+                    URL.revokeObjectURL(
+                        url
+                    );
+
+                    currentAudio =
+                        null;
                 }
             );
+    }
+
+    function blobToSpeechFallbackText() {
+
+        /*
+         * The audio blob itself cannot be converted back
+         * to text in the browser. Returning empty string
+         * safely prevents nonsense speech.
+         */
+        return "";
+    }
+
+    function browserSpeak(
+        text
+    ) {
+
+        if (
+            !browserSpeechSupported
+        ) {
+
+            return;
+        }
+
+        const cleanText =
+            stripMarkdownForSpeech(
+                cleanAIContent(
+                    text
+                )
+            );
+
+        if (!cleanText) {
+            return;
+        }
+
+        try {
+
+            stopBrowserSpeech();
+
+            const utterance =
+                new SpeechSynthesisUtterance(
+                    cleanText
+                );
+
+            utterance.lang =
+                detectSpeechLanguage(
+                    cleanText
+                );
+
+            utterance.rate =
+                0.96;
+
+            utterance.pitch =
+                1.0;
+
+            utterance.volume =
+                1.0;
+
+            const voices =
+                window.speechSynthesis
+                    .getVoices();
+
+            const preferred =
+                voices.find(
+                    voice =>
+                        voice.lang
+                            ?.toLowerCase()
+                            .startsWith(
+                                utterance.lang
+                                    .toLowerCase()
+                                    .split("-")[0]
+                            )
+                );
+
+            if (
+                preferred
+            ) {
+
+                utterance.voice =
+                    preferred;
+            }
+
+            utterance.onend =
+                () => {};
+
+            utterance.onerror =
+                error => {
+
+                    console.warn(
+                        "Browser speech failed:",
+                        error
+                    );
+                };
+
+            window.speechSynthesis.speak(
+                utterance
+            );
+
+        } catch (error) {
+
+            console.warn(
+                "Browser speech unavailable:",
+                error
+            );
+        }
+    }
+
+    function stopBrowserSpeech() {
+
+        if (
+            !browserSpeechSupported
+        ) {
+
+            return;
+        }
+
+        try {
+
+            window.speechSynthesis.cancel();
+
+        } catch {}
     }
 
     function stopCurrentAudio() {
@@ -3458,6 +4286,14 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(
                 /\$[^$]*\$/g,
                 " mathematical expression "
+            )
+            .replace(
+                /\\frac\{([^{}]*)\}\{([^{}]*)\}/g,
+                "$1 divided by $2"
+            )
+            .replace(
+                /\\sqrt\{([^{}]*)\}/g,
+                "square root of $1"
             )
             .replace(
                 /\s+/g,
@@ -4241,6 +5077,8 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             closeMobileSidebar();
+
+            stopListening();
         }
     );
 
@@ -4377,6 +5215,10 @@ document.addEventListener("DOMContentLoaded", () => {
         stopVoice: () => {
 
             stopCurrentAudio();
+
+            stopBrowserSpeech();
+
+            stopListening();
         },
 
         resetUpload: () => {
@@ -4385,7 +5227,11 @@ document.addEventListener("DOMContentLoaded", () => {
         },
 
         backend:
-            API_BASE
+            API_BASE,
+
+        version:
+            "V7"
     };
 
 });
+
