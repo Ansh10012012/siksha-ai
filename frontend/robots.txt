@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://siksha-ai.onrender.com/sitemap.xml
