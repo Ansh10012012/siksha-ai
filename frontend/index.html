@@ -27,12 +27,12 @@
 
     <meta
         name="description"
-        content="Siksha AI is an intelligent AI study assistant for students. Ask questions, solve problems, learn concepts, analyse files and study smarter."
+        content="Siksha AI is an AI study assistant for students. Ask questions, solve problems, understand concepts, analyse files and learn with clear, student-friendly AI help."
     >
 
     <meta
         name="keywords"
-        content="Siksha AI, SIKSHA AI, AI study assistant, AI learning assistant, student AI, study AI, education AI, homework helper, science AI, learning assistant"
+        content="Siksha AI, SIKSHA AI, AI study assistant for students, student AI assistant, AI learning assistant, study assistant, education AI, homework helper, AI tutor, science AI"
     >
 
     <meta
@@ -60,8 +60,13 @@
         content="Siksha AI"
     >
 
+    <meta
+        name="referrer"
+        content="strict-origin-when-cross-origin"
+    >
+
     <!-- =====================================================
-         CANONICAL URL
+         CANONICAL
     ====================================================== -->
 
     <link
@@ -70,7 +75,7 @@
     >
 
     <!-- =====================================================
-         OPEN GRAPH / SOCIAL SHARING
+         OPEN GRAPH
     ====================================================== -->
 
     <meta
@@ -80,7 +85,7 @@
 
     <meta
         property="og:description"
-        content="Learn smarter with Siksha AI — an intelligent AI study assistant for students."
+        content="Siksha AI helps students ask questions, solve problems, understand concepts, analyse files and study smarter with AI."
     >
 
     <meta
@@ -96,6 +101,11 @@
     <meta
         property="og:site_name"
         content="Siksha AI"
+    >
+
+    <meta
+        property="og:locale"
+        content="en_IN"
     >
 
     <meta
@@ -124,7 +134,7 @@
 
     <meta
         name="twitter:description"
-        content="Learn smarter with Siksha AI — an intelligent AI study assistant for students."
+        content="Ask questions, solve problems, understand concepts and learn smarter with Siksha AI."
     >
 
     <meta
@@ -148,21 +158,64 @@
     >
 
     <!-- =====================================================
-         WEBSITE STRUCTURED DATA
+         STRUCTURED DATA
+         WebSite + Organization + WebApplication
     ====================================================== -->
 
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "Siksha AI",
-        "alternateName": "SIKSHA AI",
-        "url": "https://siksha-ai.onrender.com/",
-        "description": "Siksha AI is an intelligent AI study assistant for students.",
-        "publisher": {
-            "@type": "Person",
-            "name": "ANSH RAJ"
-        }
+        "@graph": [
+
+            {
+                "@type": "WebSite",
+                "@id": "https://siksha-ai.onrender.com/#website",
+                "name": "Siksha AI",
+                "alternateName": [
+                    "SIKSHA AI",
+                    "SikshaAI"
+                ],
+                "url": "https://siksha-ai.onrender.com/",
+                "description": "Siksha AI is an AI study assistant for students that helps with questions, problem solving, concept explanations, revision and learning."
+            },
+
+            {
+                "@type": "Organization",
+                "@id": "https://siksha-ai.onrender.com/#organization",
+                "name": "Siksha AI",
+                "alternateName": "SIKSHA AI",
+                "url": "https://siksha-ai.onrender.com/",
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": "https://siksha-ai.onrender.com/assets/logo.png"
+                },
+                "description": "Siksha AI is an AI-powered study assistant designed to help students learn, understand concepts and solve academic problems.",
+                "founder": {
+                    "@type": "Person",
+                    "name": "ANSH RAJ"
+                }
+            },
+
+            {
+                "@type": "WebApplication",
+                "@id": "https://siksha-ai.onrender.com/#application",
+                "name": "Siksha AI",
+                "alternateName": "SIKSHA AI",
+                "url": "https://siksha-ai.onrender.com/",
+                "applicationCategory": "EducationalApplication",
+                "applicationSubCategory": "AI Study Assistant",
+                "operatingSystem": "Web",
+                "description": "Siksha AI is an AI study assistant for students that provides explanations, problem solving, revision support, file analysis and interactive learning.",
+                "creator": {
+                    "@id": "https://siksha-ai.onrender.com/#organization"
+                },
+                "publisher": {
+                    "@id": "https://siksha-ai.onrender.com/#organization"
+                },
+                "image": "https://siksha-ai.onrender.com/assets/logo.png"
+            }
+
+        ]
     }
     </script>
 
@@ -250,6 +303,7 @@
         <aside
             class="sidebar"
             id="sidebar"
+            aria-label="Siksha AI navigation"
         >
 
 
@@ -261,8 +315,10 @@
 
                     <img
                         src="assets/logo.png"
-                        alt="Siksha AI"
+                        alt="Siksha AI logo"
                         class="brand-logo"
+                        width="64"
+                        height="64"
                         onerror="this.style.display='none'"
                     >
 
@@ -296,6 +352,7 @@
                 class="new-chat-button"
                 id="newChatButton"
                 type="button"
+                aria-label="Start a new Siksha AI chat"
             >
 
                 <span class="button-icon">
@@ -402,7 +459,10 @@
 
                 <div class="chat-search">
 
-                    <span class="search-icon">
+                    <span
+                        class="search-icon"
+                        aria-hidden="true"
+                    >
                         ⌕
                     </span>
 
@@ -411,6 +471,7 @@
                         id="chatSearchInput"
                         placeholder="Search chats..."
                         autocomplete="off"
+                        aria-label="Search previous chats"
                     >
 
                 </div>
@@ -455,7 +516,10 @@
 
                 <div class="sidebar-status">
 
-                    <span class="status-dot"></span>
+                    <span
+                        class="status-dot"
+                        aria-hidden="true"
+                    ></span>
 
                     <span>
                         Siksha AI Online
@@ -476,7 +540,10 @@
              MAIN CHAT AREA
         ================================================== -->
 
-        <section class="chat-area">
+        <section
+            class="chat-area"
+            aria-label="Siksha AI study assistant"
+        >
 
 
             <!-- =============================================
@@ -491,7 +558,7 @@
                         class="icon-button mobile-menu-button"
                         id="mobileMenuButton"
                         type="button"
-                        aria-label="Open menu"
+                        aria-label="Open Siksha AI menu"
                     >
                         ☰
                     </button>
@@ -507,14 +574,22 @@
                             src="assets/logo.png"
                             alt=""
                             class="header-logo"
+                            width="32"
+                            height="32"
                             onerror="this.style.display='none'"
                         >
 
-                        <span class="header-logo-fallback">
+                        <span
+                            class="header-logo-fallback"
+                            aria-hidden="true"
+                        >
                             S
                         </span>
 
-                        <span class="online-ring"></span>
+                        <span
+                            class="online-ring"
+                            aria-hidden="true"
+                        ></span>
 
                     </div>
 
@@ -537,7 +612,7 @@
                         </div>
 
                         <p id="modeSubtitle">
-                            Your intelligent learning assistant
+                            Your intelligent AI study assistant
                         </p>
 
                     </div>
@@ -590,11 +665,16 @@
 
                         <img
                             src="assets/logo.png"
-                            alt="Siksha AI"
+                            alt="Siksha AI — AI study assistant logo"
+                            width="120"
+                            height="120"
                             onerror="this.style.display='none'"
                         >
 
-                        <span class="welcome-logo-fallback">
+                        <span
+                            class="welcome-logo-fallback"
+                            aria-hidden="true"
+                        >
                             S
                         </span>
 
@@ -603,9 +683,12 @@
 
                     <div class="welcome-badge">
 
-                        <span class="welcome-badge-dot"></span>
+                        <span
+                            class="welcome-badge-dot"
+                            aria-hidden="true"
+                        ></span>
 
-                        AI LEARNING ASSISTANT
+                        AI STUDY ASSISTANT FOR STUDENTS
 
                     </div>
 
@@ -617,24 +700,32 @@
 
 
                     <p class="welcome-description">
-                        Ask questions, solve problems, understand
-                        difficult concepts, analyse files and learn
-                        at your own pace.
+                        Siksha AI is an AI study assistant for students.
+                        Ask questions, solve problems, understand difficult
+                        concepts, revise for exams, analyse files and learn
+                        at your own pace with clear, student-friendly help.
                     </p>
 
 
                     <!-- Quick Prompts -->
 
-                    <div class="quick-prompts">
+                    <div
+                        class="quick-prompts"
+                        aria-label="Siksha AI study examples"
+                    >
 
 
                         <button
                             class="quick-prompt"
                             type="button"
                             data-prompt="Explain Newton's Third Law for a Class 9 ICSE student in simple Hinglish."
+                            aria-label="Ask Siksha AI to explain a concept"
                         >
 
-                            <span class="quick-prompt-icon">
+                            <span
+                                class="quick-prompt-icon"
+                                aria-hidden="true"
+                            >
                                 ⚛
                             </span>
 
@@ -649,9 +740,13 @@
                             class="quick-prompt"
                             type="button"
                             data-prompt="Solve this mathematics problem step by step and explain every calculation clearly."
+                            aria-label="Ask Siksha AI to solve a problem"
                         >
 
-                            <span class="quick-prompt-icon">
+                            <span
+                                class="quick-prompt-icon"
+                                aria-hidden="true"
+                            >
                                 ∑
                             </span>
 
@@ -666,9 +761,13 @@
                             class="quick-prompt"
                             type="button"
                             data-prompt="Give me an exam-ready revision summary with the most important points and common mistakes."
+                            aria-label="Ask Siksha AI for exam revision"
                         >
 
-                            <span class="quick-prompt-icon">
+                            <span
+                                class="quick-prompt-icon"
+                                aria-hidden="true"
+                            >
                                 📚
                             </span>
 
@@ -683,9 +782,13 @@
                             class="quick-prompt"
                             type="button"
                             data-prompt="Teach me this topic from the basics and gradually take me to advanced level."
+                            aria-label="Ask Siksha AI to teach a topic deeply"
                         >
 
-                            <span class="quick-prompt-icon">
+                            <span
+                                class="quick-prompt-icon"
+                                aria-hidden="true"
+                            >
                                 🧠
                             </span>
 
@@ -760,7 +863,7 @@
                     class="remove-file-button"
                     id="removeFileButton"
                     type="button"
-                    aria-label="Remove file"
+                    aria-label="Remove uploaded file"
                 >
                     ×
                 </button>
@@ -830,8 +933,8 @@
                             class="composer-tool"
                             id="attachButton"
                             type="button"
-                            title="Upload file"
-                            aria-label="Upload file"
+                            title="Upload a study file"
+                            aria-label="Upload a study file"
                         >
 
                             <span>
@@ -858,6 +961,7 @@
                             placeholder="Ask Siksha AI anything..."
                             autocomplete="off"
                             spellcheck="true"
+                            aria-label="Ask Siksha AI a study question"
                         ></textarea>
 
 
@@ -867,11 +971,14 @@
                             class="composer-tool talk-button"
                             id="talkButton"
                             type="button"
-                            title="Voice input"
-                            aria-label="Voice input"
+                            title="Use voice input"
+                            aria-label="Use voice input with Siksha AI"
                         >
 
-                            <span class="mic-icon">
+                            <span
+                                class="mic-icon"
+                                aria-hidden="true"
+                            >
                                 🎙
                             </span>
 
@@ -884,11 +991,14 @@
                             class="send-button"
                             id="sendButton"
                             type="button"
-                            title="Send message"
-                            aria-label="Send message"
+                            title="Send message to Siksha AI"
+                            aria-label="Send message to Siksha AI"
                         >
 
-                            <span class="send-icon">
+                            <span
+                                class="send-icon"
+                                aria-hidden="true"
+                            >
                                 ➤
                             </span>
 
@@ -948,6 +1058,7 @@
     <div
         class="sidebar-overlay"
         id="sidebarOverlay"
+        aria-hidden="true"
     ></div>
 
 
@@ -972,7 +1083,7 @@
                 class="modal-close"
                 id="premiumModalClose"
                 type="button"
-                aria-label="Close"
+                aria-label="Close Premium dialog"
             >
                 ×
             </button>
@@ -981,7 +1092,10 @@
             <div class="premium-modal-glow"></div>
 
 
-            <div class="premium-icon">
+            <div
+                class="premium-icon"
+                aria-hidden="true"
+            >
                 ✦
             </div>
 
@@ -1129,7 +1243,10 @@
             aria-modal="true"
         >
 
-            <div class="delete-icon">
+            <div
+                class="delete-icon"
+                aria-hidden="true"
+            >
                 🗑
             </div>
 
